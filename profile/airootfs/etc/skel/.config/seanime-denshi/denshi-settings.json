@@ -1,0 +1,13 @@
+{
+  "minimizeToTray": true,
+  "openInBackground": false,
+  "openAtLaunch": false,
+  "updateChannel": "github",
+  "windowBounds": {
+    "x": 0,
+    "y": 36,
+    "width": 1536,
+    "height": 828
+  },
+  "windowMaximized": true
+}

@@ -1,0 +1,717 @@
+[2026-06-16 01:43:43.074] [info]  [STARTUP] App ready: 
+[2026-06-16 01:43:43.088] [info]  [Denshi] Loaded settings: {"minimizeToTray":true,"openInBackground":false,"openAtLaunch":false,"updateChannel":"github","windowBounds":null,"windowMaximized":true}
+[2026-06-16 01:43:44.299] [info]  Passing --gtk-version=3 to Electron
+[2026-06-16 01:43:44.300] [info]  [STARTUP] NODE_ENV: not set
+[2026-06-16 01:43:44.300] [info]  [STARTUP] Platform: linux
+[2026-06-16 01:43:44.301] [info]  [STARTUP] Architecture: x64
+[2026-06-16 01:43:44.301] [info]  [STARTUP] Node version: v22.21.1
+[2026-06-16 01:43:44.301] [info]  [STARTUP] Electron version: 39.2.7
+[2026-06-16 01:43:44.302] [info]  [STARTUP] App path: /tmp/.mount_seanimnmwBCQ/resources/app.asar
+[2026-06-16 01:43:44.302] [info]  [STARTUP] Dir name: /tmp/.mount_seanimnmwBCQ/resources/app.asar/src
+[2026-06-16 01:43:44.303] [info]  [STARTUP] User data path: /home/csy20/.config/seanime-denshi
+[2026-06-16 01:43:44.304] [info]  [STARTUP] Executable path: /tmp/.mount_seanimnmwBCQ/seanime-denshi
+[2026-06-16 01:43:44.304] [info]  [STARTUP] Resources path: /tmp/.mount_seanimnmwBCQ/resources
+[2026-06-16 01:43:44.305] [info]  [STARTUP] Binaries directory contents: ["seanime-server-linux-amd64","seanime-server-linux-arm64"]
+[2026-06-16 01:43:44.309] [info]  Local server running at http://127.0.0.1:43709
+[2026-06-16 01:43:44.311] [info]  [STARTUP] Creating main window: 
+[2026-06-16 01:43:44.533] [info]  [STARTUP] Loading production build with custom protocol: 
+[2026-06-16 01:43:44.588] [info]  [STARTUP] Creating splash screen: 
+[2026-06-16 01:43:44.598] [info]  [STARTUP] Loading splash screen with custom protocol: 
+[2026-06-16 01:43:44.653] [info]  [STARTUP] Attempting to launch server: 
+[2026-06-16 01:43:44.655] [info]  [STARTUP] Using binary: /tmp/.mount_seanimnmwBCQ/resources/binaries/seanime-server-linux-amd64 (x64)
+[2026-06-16 01:43:44.655] [info]  [STARTUP] Resources path: /tmp/.mount_seanimnmwBCQ/resources
+[2026-06-16 01:43:44.656] [error] Failed to make binary executable: Error: EROFS: read-only file system, chmod '/tmp/.mount_seanimnmwBCQ/resources/binaries/seanime-server-linux-amd64'
+[2026-06-16 01:43:44.657] [info]  [32m[Main] Spawning server process[0m {
+  args: [ '-desktop-sidecar', 'true' ],
+  binaryPath: '/tmp/.mount_seanimnmwBCQ/resources/binaries/seanime-server-linux-amd64'
+}
+[2026-06-16 01:43:44.789] [error] (node:142934) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `seanime-denshi --trace-deprecation ...` to show where the warning was created)
+[2026-06-16 01:43:46.408] [info]  [STARTUP] RENDERER READY: main window committed first frame
+[2026-06-16 01:43:47.713] [info]  [Main] Server started via HTTP status probe
+[2026-06-16 01:43:49.715] [info]  [Main] Server started timeout
+[2026-06-16 01:43:49.716] [info]  [Main] Server started close splash screen
+[2026-06-16 01:43:49.717] [info]  [STARTUP] Server launched successfully: 
+[2026-06-16 01:43:49.718] [info]  Checking for update
+[2026-06-16 01:43:49.719] [info]  Checking for update...
+[2026-06-16 01:43:49.724] [info]  Generated new staging user ID: ce080e64-04e6-57d5-a6ba-793ddc067fdf
+[2026-06-16 01:43:51.941] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-16 01:43:51.942] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-16 01:43:51.945] [debug] checkForUpdatesAndNotify called, downloadPromise is null
+[2026-06-16 01:45:56.893] [info]  [Main] Checking for updates...
+[2026-06-16 01:45:56.895] [info]  Checking for update
+[2026-06-16 01:45:56.896] [info]  Checking for update...
+[2026-06-16 01:45:57.713] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-16 01:45:57.714] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-16 02:26:41.489] [info]  [STARTUP] App ready: 
+[2026-06-16 02:26:41.527] [info]  [Denshi] Loaded settings: {"minimizeToTray":true,"openInBackground":false,"openAtLaunch":false,"updateChannel":"github","windowBounds":{"x":4,"y":40,"width":1528,"height":820},"windowMaximized":false}
+[2026-06-16 02:43:48.618] [info]  [Main] Checking for updates...
+[2026-06-16 02:43:48.628] [info]  Checking for update
+[2026-06-16 02:43:48.629] [info]  Checking for update...
+[2026-06-16 02:43:50.448] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-16 02:43:50.449] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-16 03:43:48.712] [info]  [Main] Checking for updates...
+[2026-06-16 03:43:48.714] [info]  Checking for update
+[2026-06-16 03:43:48.714] [info]  Checking for update...
+[2026-06-16 03:43:50.037] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-16 03:43:50.037] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-22 19:53:34.241] [info]  [STARTUP] App ready: 
+[2026-06-22 19:53:34.248] [info]  [Denshi] Loaded settings: {"minimizeToTray":true,"openInBackground":false,"openAtLaunch":false,"updateChannel":"github","windowBounds":{"x":4,"y":36,"width":1528,"height":820},"windowMaximized":false}
+[2026-06-22 19:53:34.751] [info]  [STARTUP] App ready: 
+[2026-06-22 19:53:34.758] [info]  [Denshi] Loaded settings: {"minimizeToTray":true,"openInBackground":false,"openAtLaunch":false,"updateChannel":"github","windowBounds":{"x":4,"y":36,"width":1528,"height":820},"windowMaximized":false}
+[2026-06-22 19:53:34.960] [info]  Passing --gtk-version=3 to Electron
+[2026-06-22 19:53:34.961] [info]  [STARTUP] NODE_ENV: not set
+[2026-06-22 19:53:34.961] [info]  [STARTUP] Platform: linux
+[2026-06-22 19:53:34.961] [info]  [STARTUP] Architecture: x64
+[2026-06-22 19:53:34.961] [info]  [STARTUP] Node version: v22.21.1
+[2026-06-22 19:53:34.961] [info]  [STARTUP] Electron version: 39.2.7
+[2026-06-22 19:53:34.961] [info]  [STARTUP] App path: /tmp/.mount_seanimnSw7xu/resources/app.asar
+[2026-06-22 19:53:34.962] [info]  [STARTUP] Dir name: /tmp/.mount_seanimnSw7xu/resources/app.asar/src
+[2026-06-22 19:53:34.962] [info]  [STARTUP] User data path: /home/csy20/.config/seanime-denshi
+[2026-06-22 19:53:34.962] [info]  [STARTUP] Executable path: /tmp/.mount_seanimnSw7xu/seanime-denshi
+[2026-06-22 19:53:34.962] [info]  [STARTUP] Resources path: /tmp/.mount_seanimnSw7xu/resources
+[2026-06-22 19:53:34.962] [info]  [STARTUP] Binaries directory contents: ["seanime-server-linux-amd64","seanime-server-linux-arm64"]
+[2026-06-22 19:53:34.964] [info]  Local server running at http://127.0.0.1:44523
+[2026-06-22 19:53:34.965] [info]  [STARTUP] Creating main window: 
+[2026-06-22 19:53:35.078] [info]  [STARTUP] Loading production build with custom protocol: 
+[2026-06-22 19:53:35.106] [info]  [STARTUP] Creating splash screen: 
+[2026-06-22 19:53:35.113] [info]  [STARTUP] Loading splash screen with custom protocol: 
+[2026-06-22 19:53:35.145] [info]  [STARTUP] Attempting to launch server: 
+[2026-06-22 19:53:35.146] [info]  [STARTUP] Using binary: /tmp/.mount_seanimnSw7xu/resources/binaries/seanime-server-linux-amd64 (x64)
+[2026-06-22 19:53:35.146] [info]  [STARTUP] Resources path: /tmp/.mount_seanimnSw7xu/resources
+[2026-06-22 19:53:35.146] [error] Failed to make binary executable: Error: EROFS: read-only file system, chmod '/tmp/.mount_seanimnSw7xu/resources/binaries/seanime-server-linux-amd64'
+[2026-06-22 19:53:35.147] [info]  [32m[Main] Spawning server process[0m {
+  args: [ '-desktop-sidecar', 'true' ],
+  binaryPath: '/tmp/.mount_seanimnSw7xu/resources/binaries/seanime-server-linux-amd64'
+}
+[2026-06-22 19:53:35.228] [error] (node:9617) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `seanime-denshi --trace-deprecation ...` to show where the warning was created)
+[2026-06-22 19:53:36.145] [info]  [STARTUP] RENDERER READY: main window committed first frame
+[2026-06-22 19:53:36.456] [info]  [Main] Server started via websocket client connection
+[2026-06-22 19:53:37.116] [info]  [Main] Checking for updates...
+[2026-06-22 19:53:37.117] [info]  Checking for update
+[2026-06-22 19:53:37.117] [info]  Checking for update...
+[2026-06-22 19:53:38.183] [error] Error occurred in handler for 'get-local-server-port': Error: No handler registered for 'get-local-server-port'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:107393)
+    at Session.emit (node:events:519:28)
+[2026-06-22 19:53:38.457] [info]  [Main] Server started timeout
+[2026-06-22 19:53:38.457] [info]  [Main] Server started close splash screen
+[2026-06-22 19:53:38.458] [info]  [STARTUP] Server launched successfully: 
+[2026-06-22 19:53:38.459] [info]  Checking for update (already in progress)
+[2026-06-22 19:53:38.530] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-22 19:53:38.530] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-22 19:53:38.532] [debug] checkForUpdatesAndNotify called, downloadPromise is null
+[2026-06-22 20:53:38.054] [info]  [Main] Checking for updates...
+[2026-06-22 20:53:38.095] [info]  Checking for update
+[2026-06-22 20:53:38.096] [info]  Checking for update...
+[2026-06-22 20:53:41.011] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-22 20:53:41.012] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-22 21:53:37.945] [info]  [Main] Checking for updates...
+[2026-06-22 21:53:37.959] [info]  Checking for update
+[2026-06-22 21:53:37.959] [info]  Checking for update...
+[2026-06-22 21:53:39.565] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-22 21:53:39.565] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-22 22:53:38.508] [info]  [Main] Checking for updates...
+[2026-06-22 22:53:38.517] [info]  Checking for update
+[2026-06-22 22:53:38.519] [info]  Checking for update...
+[2026-06-22 22:53:40.147] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-22 22:53:40.148] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-22 23:53:38.244] [info]  [Main] Checking for updates...
+[2026-06-22 23:53:38.245] [info]  Checking for update
+[2026-06-22 23:53:38.245] [info]  Checking for update...
+[2026-06-22 23:53:39.882] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-22 23:53:39.883] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-23 00:53:37.872] [info]  [Main] Checking for updates...
+[2026-06-23 00:53:37.873] [info]  Checking for update
+[2026-06-23 00:53:37.873] [info]  Checking for update...
+[2026-06-23 00:53:39.042] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-23 00:53:39.042] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-23 01:53:38.041] [info]  [Main] Checking for updates...
+[2026-06-23 01:53:38.050] [info]  Checking for update
+[2026-06-23 01:53:38.051] [info]  Checking for update...
+[2026-06-23 01:53:45.194] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-23 01:53:45.195] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-23 02:53:37.683] [info]  [Main] Checking for updates...
+[2026-06-23 02:53:37.707] [info]  Checking for update
+[2026-06-23 02:53:37.711] [info]  Checking for update...
+[2026-06-23 02:53:39.413] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-23 02:53:39.417] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-23 03:53:38.187] [info]  [Main] Checking for updates...
+[2026-06-23 03:53:38.241] [info]  Checking for update
+[2026-06-23 03:53:38.242] [info]  Checking for update...
+[2026-06-23 03:53:40.096] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-23 03:53:40.096] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-06-23 04:53:37.920] [info]  [Main] Checking for updates...
+[2026-06-23 04:53:37.927] [info]  Checking for update
+[2026-06-23 04:53:37.928] [info]  Checking for update...
+[2026-06-23 04:53:39.253] [info]  Update for version 3.8.7 is not available (latest version: 3.8.7, downgrade is disallowed).
+[2026-06-23 04:53:39.254] [info]  Update not available: {
+  version: '3.8.7',
+  files: [
+    {
+      url: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+      sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+      size: 179835328,
+      blockMapSize: 188884
+    }
+  ],
+  path: 'seanime-denshi-3.8.7_Linux_x86_64.AppImage',
+  sha512: '2jzodGgyUcximyanZj+Rhm3UcvCRwypAiBJw0xepvjRoa1T+WwbLE6waZ2MWAifec0P3ghCTGfrISWnFB404AQ==',
+  releaseDate: '2026-06-15T14:46:39.945Z'
+}
+[2026-07-11 23:36:13.732] [info]  [STARTUP] App ready: 
+[2026-07-11 23:36:13.744] [info]  [Denshi] Loaded settings: {"minimizeToTray":true,"openInBackground":false,"openAtLaunch":false,"updateChannel":"github","windowBounds":{"x":4,"y":36,"width":1528,"height":820},"windowMaximized":false}
+[2026-07-11 23:36:14.796] [info]  Passing --gtk-version=3 to Electron
+[2026-07-11 23:36:14.797] [info]  [STARTUP] NODE_ENV: not set
+[2026-07-11 23:36:14.797] [info]  [STARTUP] Platform: linux
+[2026-07-11 23:36:14.797] [info]  [STARTUP] Architecture: x64
+[2026-07-11 23:36:14.798] [info]  [STARTUP] Node version: v22.21.1
+[2026-07-11 23:36:14.798] [info]  [STARTUP] Electron version: 39.2.7
+[2026-07-11 23:36:14.798] [info]  [STARTUP] App path: /tmp/.mount_seanimID7AkY/resources/app.asar
+[2026-07-11 23:36:14.798] [info]  [STARTUP] Dir name: /tmp/.mount_seanimID7AkY/resources/app.asar/src
+[2026-07-11 23:36:14.798] [info]  [STARTUP] User data path: /home/csy20/.config/seanime-denshi
+[2026-07-11 23:36:14.798] [info]  [STARTUP] Executable path: /tmp/.mount_seanimID7AkY/seanime-denshi
+[2026-07-11 23:36:14.799] [info]  [STARTUP] Resources path: /tmp/.mount_seanimID7AkY/resources
+[2026-07-11 23:36:14.799] [info]  [STARTUP] Binaries directory contents: ["seanime-server-linux-amd64","seanime-server-linux-arm64"]
+[2026-07-11 23:36:14.801] [info]  Local server running at http://127.0.0.1:33339
+[2026-07-11 23:36:14.801] [info]  [STARTUP] Creating main window: 
+[2026-07-11 23:36:14.925] [info]  [STARTUP] Loading production build with custom protocol: 
+[2026-07-11 23:36:14.955] [info]  [STARTUP] Creating splash screen: 
+[2026-07-11 23:36:14.961] [info]  [STARTUP] Loading splash screen with custom protocol: 
+[2026-07-11 23:36:14.993] [info]  [STARTUP] Attempting to launch server: 
+[2026-07-11 23:36:14.994] [info]  [STARTUP] Using binary: /tmp/.mount_seanimID7AkY/resources/binaries/seanime-server-linux-amd64 (x64)
+[2026-07-11 23:36:14.995] [info]  [STARTUP] Resources path: /tmp/.mount_seanimID7AkY/resources
+[2026-07-11 23:36:14.995] [error] Failed to make binary executable: Error: EROFS: read-only file system, chmod '/tmp/.mount_seanimID7AkY/resources/binaries/seanime-server-linux-amd64'
+[2026-07-11 23:36:14.996] [info]  [32m[Main] Spawning server process[0m {
+  args: [ '-desktop-sidecar', 'true' ],
+  binaryPath: '/tmp/.mount_seanimID7AkY/resources/binaries/seanime-server-linux-amd64'
+}
+[2026-07-11 23:36:15.082] [error] (node:6080) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `seanime-denshi --trace-deprecation ...` to show where the warning was created)
+[2026-07-11 23:36:16.153] [info]  [STARTUP] RENDERER READY: main window committed first frame
+[2026-07-11 23:36:16.524] [info]  [Main] Server started via HTTP status probe
+[2026-07-11 23:36:18.454] [info]  [Main] Checking for updates...
+[2026-07-11 23:36:18.454] [info]  Checking for update
+[2026-07-11 23:36:18.455] [info]  Checking for update...
+[2026-07-11 23:36:18.524] [info]  [Main] Server started timeout
+[2026-07-11 23:36:18.524] [info]  [Main] Server started close splash screen
+[2026-07-11 23:36:18.525] [info]  [STARTUP] Server launched successfully: 
+[2026-07-11 23:36:18.525] [info]  Checking for update (already in progress)
+[2026-07-11 23:36:19.377] [info]  Found version 3.9.1 (url: seanime-denshi-3.9.1_Linux_x86_64.AppImage)
+[2026-07-11 23:36:19.378] [info]  Update available: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z'
+}
+[2026-07-11 23:36:19.379] [info]  Downloading update from seanime-denshi-3.9.1_Linux_x86_64.AppImage
+[2026-07-11 23:36:19.382] [debug] updater cache dir: /home/csy20/.cache/seanime-denshi-updater
+[2026-07-11 23:36:20.402] [debug] vgBvO6GLP9sJAdc8pfL1b3mY duplicated in blockmap (same size), it doesn't lead to broken differential downloader, just corresponding block will be skipped)
+[2026-07-11 23:36:20.409] [info]  File has 9845 changed blocks
+[2026-07-11 23:36:20.410] [debug] [
+  {
+    "kind": 0,
+    "start": 0,
+    "end": 159006
+  },
+  {
+    "kind": 1,
+    "start": 159006,
+    "end": 51103939
+  },
+  {
+    "kind": 0,
+    "start": 28542309,
+    "end": 28554538
+  },
+  {
+    "kind": 1,
+    "start": 51116168,
+    "end": 109261854
+  },
+  {
+    "kind": 0,
+    "start": 89984029,
+    "end": 90473900
+  },
+  {
+    "kind": 1,
+    "start": 109751725,
+    "end": 110047447
+  },
+  {
+    "kind": 0,
+    "start": 90765281,
+    "end": 90774497
+  },
+  {
+    "kind": 1,
+    "start": 110056663,
+    "end": 111029610
+  },
+  {
+    "kind": 0,
+    "start": 91679171,
+    "end": 91757249
+  },
+  {
+    "kind": 1,
+    "start": 111107688,
+    "end": 206366471
+  },
+  {
+    "kind": 0,
+    "start": 179320324,
+    "end": 179419493
+  },
+  {
+    "kind": 1,
+    "start": 206465640,
+    "end": 206700520
+  }
+]
+[2026-07-11 23:36:20.420] [info]  Full: 202,067.68 KB, To download: 201,028.27 KB (99%)
+[2026-07-11 23:36:20.702] [error] Cannot download differentially, fallback to full download: HttpError: 501 
+Headers: {
+  "accept-ranges": "bytes",
+  "content-disposition": "attachment; filename=seanime-denshi-3.9.1_Linux_x86_64.AppImage",
+  "content-length": "463",
+  "content-type": "application/octet-stream",
+  "date": "Sat, 11 Jul 2026 18:06:20 GMT",
+  "retry-after": "0",
+  "server": "Varnish",
+  "via": "1.1 varnish",
+  "x-cache": "MISS",
+  "x-cache-hits": "0",
+  "x-served-by": "cache-maa10230-MAA",
+  "x-timer": "S1783793181.614544,VS0,VE0"
+}
+    at createHttpError (/tmp/.mount_seanimID7AkY/resources/app.asar/node_modules/electron-updater/node_modules/builder-util-runtime/out/httpExecutor.js:21:12)
+    at checkIsRangesSupported (/tmp/.mount_seanimID7AkY/resources/app.asar/node_modules/electron-updater/out/differentialDownloader/multipleRangeDownloader.js:100:59)
+    at ClientRequest.<anonymous> (/tmp/.mount_seanimID7AkY/resources/app.asar/node_modules/electron-updater/out/differentialDownloader/multipleRangeDownloader.js:75:14)
+    at ClientRequest.emit (node:events:519:28)
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:124429)
+    at SimpleURLLoaderWrapper.emit (node:events:519:28)
+[2026-07-11 23:36:22.237] [info]  Download progress: 0.1662678720854208%
+[2026-07-11 23:36:23.238] [info]  Download progress: 0.5780111044844702%
+[2026-07-11 23:36:24.239] [info]  Download progress: 1.9320172375142812%
+[2026-07-11 23:36:25.241] [info]  Download progress: 3.6660940466047536%
+[2026-07-11 23:36:26.244] [info]  Download progress: 5.648265136644806%
+[2026-07-11 23:36:27.246] [info]  Download progress: 8.094965764221605%
+[2026-07-11 23:36:28.248] [info]  Download progress: 10.634056441050205%
+[2026-07-11 23:36:29.250] [info]  Download progress: 13.405396421531782%
+[2026-07-11 23:36:30.251] [info]  Download progress: 15.369103613639275%
+[2026-07-11 23:36:31.257] [info]  Download progress: 17.586182557326463%
+[2026-07-11 23:36:32.257] [info]  Download progress: 19.51029470444727%
+[2026-07-11 23:36:33.257] [info]  Download progress: 21.592756584568892%
+[2026-07-11 23:36:34.258] [info]  Download progress: 24.126561091639967%
+[2026-07-11 23:36:35.258] [info]  Download progress: 26.699951944570323%
+[2026-07-11 23:36:36.259] [info]  Download progress: 28.92496207603322%
+[2026-07-11 23:36:37.261] [info]  Download progress: 30.861308096004826%
+[2026-07-11 23:36:38.262] [info]  Download progress: 33.21299105456646%
+[2026-07-11 23:36:39.262] [info]  Download progress: 35.63594161445317%
+[2026-07-11 23:36:40.263] [info]  Download progress: 38.45480782769716%
+[2026-07-11 23:36:41.266] [info]  Download progress: 40.323488651662075%
+[2026-07-11 23:36:42.266] [info]  Download progress: 42.40162174932638%
+[2026-07-11 23:36:43.268] [info]  Download progress: 44.91168488783478%
+[2026-07-11 23:36:44.269] [info]  Download progress: 47.497313963179636%
+[2026-07-11 23:36:45.277] [info]  Download progress: 49.20763200545261%
+[2026-07-11 23:36:46.283] [info]  Download progress: 49.92027322219377%
+[2026-07-11 23:36:47.287] [info]  Download progress: 50.96114314846697%
+[2026-07-11 23:36:48.290] [info]  Download progress: 52.37056320639783%
+[2026-07-11 23:36:49.292] [info]  Download progress: 54.07296745914992%
+[2026-07-11 23:36:50.293] [info]  Download progress: 55.632836509251845%
+[2026-07-11 23:36:51.297] [info]  Download progress: 57.556953005936364%
+[2026-07-11 23:36:52.300] [info]  Download progress: 59.8769634081596%
+[2026-07-11 23:36:53.300] [info]  Download progress: 62.352746668530216%
+[2026-07-11 23:36:54.303] [info]  Download progress: 65.13201348722379%
+[2026-07-11 23:36:55.348] [info]  Download progress: 65.9228279626008%
+[2026-07-11 23:36:56.349] [info]  Download progress: 67.2816094332951%
+[2026-07-11 23:36:57.351] [info]  Download progress: 69.02360003190647%
+[2026-07-11 23:36:58.352] [info]  Download progress: 70.97818570563733%
+[2026-07-11 23:36:59.358] [info]  Download progress: 73.38529998735486%
+[2026-07-11 23:37:00.441] [info]  Download progress: 76.02637778411042%
+[2026-07-11 23:37:01.442] [info]  Download progress: 77.78820915920977%
+[2026-07-11 23:37:02.444] [info]  Download progress: 79.65688998317468%
+[2026-07-11 23:37:03.453] [info]  Download progress: 81.70368350776654%
+[2026-07-11 23:37:04.454] [info]  Download progress: 84.3008331275144%
+[2026-07-11 23:37:05.455] [info]  Download progress: 86.93756909312152%
+[2026-07-11 23:37:06.458] [info]  Download progress: 88.885422608805%
+[2026-07-11 23:37:07.483] [info]  Download progress: 89.36844214165654%
+[2026-07-11 23:37:08.495] [info]  Download progress: 89.4951323670101%
+[2026-07-11 23:37:09.526] [info]  Download progress: 89.57430505872865%
+[2026-07-11 23:37:10.681] [info]  Download progress: 89.60597761506705%
+[2026-07-11 23:37:11.812] [info]  Download progress: 89.68516770504043%
+[2026-07-11 23:37:13.134] [info]  Download progress: 89.78018537405559%
+[2026-07-11 23:37:14.346] [info]  Download progress: 89.82768550943577%
+[2026-07-11 23:37:15.382] [info]  Download progress: 89.90687559940915%
+[2026-07-11 23:37:16.852] [info]  Download progress: 90.0098070579452%
+[2026-07-11 23:37:18.011] [info]  Download progress: 90.05730719332537%
+[2026-07-11 23:37:19.308] [info]  Download progress: 90.11273851648126%
+[2026-07-11 23:37:20.331] [info]  Download progress: 90.17608362915803%
+[2026-07-11 23:37:21.340] [info]  Download progress: 90.26318750865231%
+[2026-07-11 23:37:22.505] [info]  Download progress: 90.34236020037086%
+[2026-07-11 23:37:23.551] [info]  Download progress: 90.42946407986514%
+[2026-07-11 23:37:24.578] [info]  Download progress: 90.64325818471298%
+[2026-07-11 23:37:25.645] [info]  Download progress: 90.76203462054563%
+[2026-07-11 23:37:26.720] [info]  Download progress: 90.84912110178507%
+[2026-07-11 23:37:27.849] [info]  Download progress: 90.92039740223757%
+[2026-07-11 23:37:28.986] [info]  Download progress: 90.95998374809685%
+[2026-07-11 23:37:30.347] [info]  Download progress: 90.99957009395614%
+[2026-07-11 23:37:31.385] [info]  Download progress: 91.03915643981541%
+[2026-07-11 23:37:32.499] [info]  Download progress: 91.0945877629713%
+[2026-07-11 23:37:33.527] [info]  Download progress: 91.16584666516897%
+[2026-07-11 23:37:34.692] [info]  Download progress: 91.23712296562147%
+[2026-07-11 23:37:35.704] [info]  Download progress: 91.30046807829824%
+[2026-07-11 23:37:36.732] [info]  Download progress: 91.31629565734002%
+[2026-07-11 23:37:38.061] [info]  Download progress: 91.36381319097502%
+[2026-07-11 23:37:39.069] [info]  Download progress: 91.41131332635518%
+[2026-07-11 23:37:40.090] [info]  Download progress: 91.47465843903197%
+[2026-07-11 23:37:41.118] [info]  Download progress: 91.53800355170874%
+[2026-07-11 23:37:42.212] [info]  Download progress: 91.58552108534373%
+[2026-07-11 23:37:43.220] [info]  Download progress: 91.66469377706228%
+[2026-07-11 23:37:44.280] [info]  Download progress: 91.76762523559835%
+[2026-07-11 23:37:45.319] [info]  Download progress: 91.85472911509262%
+[2026-07-11 23:37:46.344] [info]  Download progress: 91.933919205066%
+[2026-07-11 23:37:47.382] [info]  Download progress: 92.02100568630546%
+[2026-07-11 23:37:48.495] [info]  Download progress: 92.07643700946134%
+[2026-07-11 23:37:49.709] [info]  Download progress: 92.14769591165901%
+[2026-07-11 23:37:50.723] [info]  Download progress: 92.23048405738709%
+[2026-07-11 23:37:51.801] [info]  Download progress: 92.28231732478828%
+[2026-07-11 23:37:52.858] [info]  Download progress: 92.32190367064756%
+[2026-07-11 23:37:53.871] [info]  Download progress: 92.58319791087555%
+[2026-07-11 23:37:54.871] [info]  Download progress: 93.20873524812244%
+[2026-07-11 23:37:55.873] [info]  Download progress: 94.19849828413336%
+[2026-07-11 23:37:56.878] [info]  Download progress: 95.52083186082479%
+[2026-07-11 23:37:57.882] [info]  Download progress: 97.24133271501869%
+[2026-07-11 23:37:58.884] [info]  Download progress: 99.29213508749305%
+[2026-07-11 23:37:59.209] [info]  Download progress: 100%
+[2026-07-11 23:37:59.222] [info]  New version 3.9.1 has been downloaded to /home/csy20/.cache/seanime-denshi-updater/pending/seanime-denshi-3.9.1_Linux_x86_64.AppImage
+[2026-07-11 23:37:59.225] [info]  Update downloaded: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z',
+  downloadedFile: '/home/csy20/.cache/seanime-denshi-updater/pending/seanime-denshi-3.9.1_Linux_x86_64.AppImage'
+}
+[2026-07-12 00:36:17.668] [info]  [Main] Checking for updates...
+[2026-07-12 00:36:17.668] [info]  Checking for update
+[2026-07-12 00:36:17.668] [info]  Checking for update...
+[2026-07-12 00:36:19.101] [info]  Found version 3.9.1 (url: seanime-denshi-3.9.1_Linux_x86_64.AppImage)
+[2026-07-12 00:36:19.101] [info]  Update available: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z'
+}
+[2026-07-12 00:36:19.102] [info]  Downloading update from seanime-denshi-3.9.1_Linux_x86_64.AppImage
+[2026-07-12 00:36:19.104] [info]  Update downloaded: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z',
+  downloadedFile: '/home/csy20/.cache/seanime-denshi-updater/pending/seanime-denshi-3.9.1_Linux_x86_64.AppImage'
+}
+[2026-07-12 01:36:18.062] [info]  [Main] Checking for updates...
+[2026-07-12 01:36:18.062] [info]  Checking for update
+[2026-07-12 01:36:18.063] [info]  Checking for update...
+[2026-07-12 01:36:19.373] [info]  Found version 3.9.1 (url: seanime-denshi-3.9.1_Linux_x86_64.AppImage)
+[2026-07-12 01:36:19.373] [info]  Update available: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z'
+}
+[2026-07-12 01:36:19.374] [info]  Downloading update from seanime-denshi-3.9.1_Linux_x86_64.AppImage
+[2026-07-12 01:36:19.374] [info]  Update downloaded: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z',
+  downloadedFile: '/home/csy20/.cache/seanime-denshi-updater/pending/seanime-denshi-3.9.1_Linux_x86_64.AppImage'
+}
+[2026-07-12 02:36:17.918] [info]  [Main] Checking for updates...
+[2026-07-12 02:36:17.918] [info]  Checking for update
+[2026-07-12 02:36:17.918] [info]  Checking for update...
+[2026-07-12 02:36:19.330] [info]  Found version 3.9.1 (url: seanime-denshi-3.9.1_Linux_x86_64.AppImage)
+[2026-07-12 02:36:19.330] [info]  Update available: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z'
+}
+[2026-07-12 02:36:19.331] [info]  Downloading update from seanime-denshi-3.9.1_Linux_x86_64.AppImage
+[2026-07-12 02:36:19.332] [info]  Update downloaded: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z',
+  downloadedFile: '/home/csy20/.cache/seanime-denshi-updater/pending/seanime-denshi-3.9.1_Linux_x86_64.AppImage'
+}
+[2026-07-12 03:36:17.863] [info]  [Main] Checking for updates...
+[2026-07-12 03:36:17.916] [info]  Checking for update
+[2026-07-12 03:36:17.917] [info]  Checking for update...
+[2026-07-12 03:36:19.680] [info]  Found version 3.9.1 (url: seanime-denshi-3.9.1_Linux_x86_64.AppImage)
+[2026-07-12 03:36:19.680] [info]  Update available: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z'
+}
+[2026-07-12 03:36:19.682] [info]  Downloading update from seanime-denshi-3.9.1_Linux_x86_64.AppImage
+[2026-07-12 03:36:19.691] [info]  Update downloaded: {
+  version: '3.9.1',
+  files: [
+    {
+      url: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+      sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+      size: 206917305,
+      blockMapSize: 216781
+    }
+  ],
+  path: 'seanime-denshi-3.9.1_Linux_x86_64.AppImage',
+  sha512: 'CpUjc9ucasYHqaocs016CS6xiy0mwG+yA0wK6wrEQWGDszGuUQww5G8zk3aRV8bqH/38YcPKvcqn7yFXpsui/w==',
+  releaseDate: '2026-07-08T14:28:27.784Z',
+  downloadedFile: '/home/csy20/.cache/seanime-denshi-updater/pending/seanime-denshi-3.9.1_Linux_x86_64.AppImage'
+}

@@ -1,0 +1,34 @@
+version = '3.8.7'
+
+[cache]
+dir = '$SEANIME_DATA_DIR/cache'
+transcodedir = '$SEANIME_DATA_DIR/cache/transcode'
+
+[database]
+name = 'seanime'
+
+[extensions]
+dir = '$SEANIME_DATA_DIR/extensions'
+
+[logs]
+dir = '$SEANIME_DATA_DIR/logs'
+
+[manga]
+downloaddir = '$SEANIME_DATA_DIR/manga'
+localdir = '$SEANIME_DATA_DIR/manga-local'
+
+[offline]
+assetdir = '$SEANIME_DATA_DIR/offline/assets'
+dir = '$SEANIME_DATA_DIR/offline'
+
+[server]
+host = '127.0.0.1'
+offline = false
+port = 43211
+usebinarypath = true
+
+[torrent]
+dir = '$SEANIME_DATA_DIR/torrent'
+
+[web]
+assetdir = '$SEANIME_DATA_DIR/assets'

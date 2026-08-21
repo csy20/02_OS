@@ -1,0 +1,17 @@
+[Added Associations]
+x-scheme-handler/sms=org.gnome.Shell.Extensions.ZorinConnect.desktop;
+x-scheme-handler/tel=org.gnome.Shell.Extensions.ZorinConnect.desktop;
+x-scheme-handler/http=com.google.Chrome.desktop;
+application/xhtml+xml=com.google.Chrome.desktop;
+text/html=com.google.Chrome.desktop;
+x-scheme-handler/https=com.google.Chrome.desktop;
+
+[Default Applications]
+text/html=antigravity.desktop
+x-scheme-handler/http=com.google.Chrome.desktop
+x-scheme-handler/https=com.google.Chrome.desktop
+x-scheme-handler/about=brave-browser.desktop
+x-scheme-handler/unknown=brave-browser.desktop
+application/xhtml+xml=com.google.Chrome.desktop
+x-scheme-handler/claude-cli=claude-code-url-handler.desktop
+x-scheme-handler/antigravity=antigravity.desktop

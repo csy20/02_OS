@@ -1,0 +1,6 @@
+out/
+out_link/
+*.iso
+*.sfs
+*.tar.zst
+.tmp/
