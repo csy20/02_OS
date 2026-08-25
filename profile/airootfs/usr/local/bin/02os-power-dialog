@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Windows-style shutdown dialog used by Alt+F4 on the desktop.
+set -u
+
+yad --title="Shut Down 02_OS" \
+  --center --on-top --fixed --borders=16 \
+  --width=380 \
+  --window-icon=system-shutdown \
+  --text="<b>What do you want the computer to do?</b>" \
+  --button="Sleep!system-suspend:2" \
+  --button="Restart!system-reboot:1" \
+  --button="Shut Down!system-shutdown:0" \
+  --button="Cancel!gtk-cancel:3"
+status=$?
+
+case "${status}" in
+  0) exec systemctl poweroff ;;
+  1) exec systemctl reboot ;;
+  2) exec systemctl suspend ;;
+  *) exit 0 ;;
+esac

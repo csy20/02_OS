@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p "${HOME}/Pictures"
+file="${HOME}/Pictures/02os-$(date +%Y%m%d-%H%M%S).png"
+
+case "${1:-area}" in
+  screen)
+    grim "${file}"
+    ;;
+  *)
+    geom="$(slurp || true)"
+    if [[ -z "${geom}" ]]; then
+      exit 0
+    fi
+    grim -g "${geom}" "${file}"
+    ;;
+esac
+
+wl-copy < "${file}"
+notify-send "Screenshot" "${file}" || true

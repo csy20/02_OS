@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+choice="$(printf '%s\n' \
+  "About 02_OS" \
+  "Spotlight" \
+  "Wi-Fi" \
+  "Bluetooth" \
+  "Sound" \
+  "Install 02_OS" \
+  "Sleep" \
+  "Restart" \
+  "Shut Down" | fuzzel --dmenu --prompt "02_OS  " || true)"
+
+case "${choice}" in
+  "About 02_OS") exec kitty --title "About 02_OS" -e fastfetch ;;
+  "Spotlight") exec 02os-spotlight ;;
+  "Wi-Fi") exec nm-connection-editor ;;
+  "Bluetooth") exec blueman-manager ;;
+  "Sound") exec pavucontrol ;;
+  "Install 02_OS") exec pkexec calamares ;;
+  "Sleep") exec systemctl suspend ;;
+  "Restart") exec systemctl reboot ;;
+  "Shut Down") exec systemctl poweroff ;;
+  *) exit 0 ;;
+esac

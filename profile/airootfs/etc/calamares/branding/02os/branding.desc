@@ -1,0 +1,28 @@
+---
+componentName: 02os
+windowExpanding: normal
+windowSize: 900px,560px
+windowPlacement: center
+sidebar: widget
+strings:
+    productName: 02_OS
+    shortProductName: 02_OS
+    version: "2026.08"
+    shortVersion: "2026.08"
+    versionedName: 02_OS
+    shortVersionedName: 02_OS
+    bootloaderEntryName: 02_OS
+    productUrl: https://github.com/csy20/02_OS
+    supportUrl: https://github.com/csy20/02_OS/issues
+    releaseNotesUrl: https://github.com/csy20/02_OS
+    donateUrl: https://github.com/csy20/02_OS
+images:
+    productLogo: "logo.png"
+    productIcon: "logo.png"
+    productWelcome: "welcome.png"
+slideshow: "show.qml"
+style:
+   sidebarBackground:     "#1c1c1e"
+   sidebarText:           "#f5f5f7"
+   sidebarTextSelect:     "#ffffff"
+   sidebarTextHighlight:  "#3a3a3c"

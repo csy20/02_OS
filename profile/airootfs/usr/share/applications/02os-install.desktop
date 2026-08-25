@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install 02_OS
+Comment=Install 02_OS to this computer
+Exec=sudo -E calamares
+Icon=system-software-install
+Terminal=false
+Categories=System;Settings;
+StartupNotify=true

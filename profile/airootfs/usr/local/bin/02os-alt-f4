@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Windows-accurate Alt+F4: close the focused window, or power dialog on the desktop.
+set -euo pipefail
+
+info="$(hyprctl activewindow -j 2>/dev/null || true)"
+
+if printf '%s' "${info}" | jq -e '
+  type == "object"
+  and .address != null
+  and .address != ""
+  and .address != "0x0"
+  and ((.class // "") != "")
+' >/dev/null 2>&1; then
+  hyprctl dispatch killactive
+  exit 0
+fi
+
+exec 02os-power-dialog

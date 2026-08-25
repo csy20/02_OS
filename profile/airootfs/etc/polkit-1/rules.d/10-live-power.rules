@@ -1,0 +1,16 @@
+polkit.addRule(function(action, subject) {
+    if (subject.user == "live" && (
+        action.id == "org.freedesktop.login1.power-off" ||
+        action.id == "org.freedesktop.login1.power-off-multiple-sessions" ||
+        action.id == "org.freedesktop.login1.reboot" ||
+        action.id == "org.freedesktop.login1.reboot-multiple-sessions" ||
+        action.id == "org.freedesktop.login1.halt" ||
+        action.id == "org.freedesktop.login1.suspend" ||
+        action.id == "org.freedesktop.login1.suspend-multiple-sessions" ||
+        action.id == "org.freedesktop.login1.hibernate" ||
+        action.id.indexOf("org.freedesktop.udisks2.") == 0 ||
+        action.id.indexOf("org.freedesktop.NetworkManager.") == 0
+    )) {
+        return polkit.Result.YES;
+    }
+});

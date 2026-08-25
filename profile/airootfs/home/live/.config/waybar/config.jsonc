@@ -1,0 +1,94 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 32,
+    "margin-top": 6,
+    "margin-left": 12,
+    "margin-right": 12,
+    "spacing": 6,
+    "modules-left": ["custom/logo", "hyprland/workspaces", "hyprland/window"],
+    "modules-center": ["clock"],
+    "modules-right": ["pulseaudio", "network", "bluetooth", "battery", "custom/notifications", "tray"],
+
+    "custom/logo": {
+        "format": "  02_OS",
+        "tooltip": "02_OS menu",
+        "on-click": "02os-apple-menu"
+    },
+
+    "hyprland/workspaces": {
+        "format": "{icon}",
+        "on-click": "activate",
+        "format-icons": {
+            "1": "●",
+            "2": "●",
+            "3": "●",
+            "4": "●",
+            "default": "○"
+        },
+        "persistent-workspaces": {
+            "*": [1, 2, 3, 4]
+        }
+    },
+
+    "hyprland/window": {
+        "max-length": 48,
+        "separate-outputs": true,
+        "rewrite": {
+            "": "Desktop"
+        }
+    },
+
+    "clock": {
+        "interval": 1,
+        "format": "{:%a %d %b  %H:%M}",
+        "tooltip-format": "{:%A, %d %B %Y}"
+    },
+
+    "pulseaudio": {
+        "format": "{icon}  {volume}%",
+        "format-muted": "  muted",
+        "format-icons": {
+            "default": ["", "", ""]
+        },
+        "on-click": "pavucontrol"
+    },
+
+    "network": {
+        "format-wifi": "  {essid}",
+        "format-ethernet": "󰈀  wired",
+        "format-disconnected": "󰖪  off",
+        "tooltip-format": "{ifname}: {ipaddr}",
+        "on-click": "nm-connection-editor"
+    },
+
+    "bluetooth": {
+        "format": "",
+        "format-disabled": "󰂲",
+        "format-connected": " {num_connections}",
+        "on-click": "blueman-manager",
+        "tooltip-format": "{status}"
+    },
+
+    "battery": {
+        "states": {
+            "warning": 25,
+            "critical": 10
+        },
+        "format": "{icon}  {capacity}%",
+        "format-charging": "  {capacity}%",
+        "format-plugged": "  {capacity}%",
+        "format-icons": ["", "", "", "", ""]
+    },
+
+    "custom/notifications": {
+        "tooltip": false,
+        "format": "",
+        "on-click": "swaync-client -t -sw"
+    },
+
+    "tray": {
+        "icon-size": 16,
+        "spacing": 8
+    }
+}

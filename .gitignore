@@ -4,3 +4,12 @@ out_link/
 *.sfs
 *.tar.zst
 .tmp/
+
+# Never bake the host machine's ~/.config into the live overlay
+profile/airootfs/etc/skel/.config/Grok Bot/
+profile/airootfs/etc/skel/.config/LM Studio/
+profile/airootfs/etc/skel/.config/LM-Studio/
+profile/airootfs/etc/skel/.config/gh/
+profile/airootfs/etc/skel/.config/cursor/
+profile/airootfs/etc/skel/.config/seanime-denshi/
+profile/airootfs/etc/skel/.config/go/

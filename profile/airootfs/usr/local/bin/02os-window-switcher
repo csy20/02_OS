@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mapfile -t lines < <(hyprctl clients -j | jq -r '
+  .[]
+  | select(.mapped == true and .hidden != true)
+  | "\(.address)\t\(.class) — \(.title)"
+')
+
+if [[ ${#lines[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+choice="$(printf '%s\n' "${lines[@]}" | fuzzel --dmenu --prompt "Windows  " || true)"
+[[ -z "${choice}" ]] && exit 0
+
+address="${choice%%$'\t'*}"
+hyprctl dispatch focuswindow "address:${address}"
+hyprctl dispatch alterzorder top

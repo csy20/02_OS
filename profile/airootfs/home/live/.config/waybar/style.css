@@ -1,0 +1,72 @@
+* {
+    font-family: Inter, "Font Awesome 6 Free", "Symbols Nerd Font", sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    min-height: 0;
+}
+
+window#waybar {
+    background: rgba(22, 22, 24, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    color: #f5f5f7;
+}
+
+#custom-logo,
+#workspaces,
+#window,
+#clock,
+#pulseaudio,
+#network,
+#bluetooth,
+#battery,
+#custom-notifications,
+#tray {
+    padding: 0 10px;
+    margin: 3px 2px;
+}
+
+#custom-logo {
+    font-weight: 600;
+    padding-left: 14px;
+}
+
+#window {
+    color: rgba(245, 245, 247, 0.9);
+}
+
+#clock {
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+#workspaces button {
+    color: rgba(255, 255, 255, 0.35);
+    padding: 0 4px;
+    background: transparent;
+    border: none;
+}
+
+#workspaces button.active {
+    color: #ffffff;
+}
+
+#battery.warning {
+    color: #f5d76e;
+}
+
+#battery.critical {
+    color: #ff6b6b;
+}
+
+#pulseaudio.muted,
+#network.disconnected {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+tooltip {
+    background: rgba(28, 28, 30, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    color: #f5f5f7;
+}
