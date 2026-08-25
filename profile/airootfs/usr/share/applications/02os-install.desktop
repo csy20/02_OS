@@ -2,7 +2,7 @@
 Type=Application
 Name=Install 02_OS
 Comment=Install 02_OS to this computer
-Exec=sudo -E calamares
+Exec=kitty --title "Install 02_OS" -e sudo archinstall
 Icon=system-software-install
 Terminal=false
 Categories=System;Settings;

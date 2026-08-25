@@ -2,9 +2,9 @@
 vt = 1
 
 [default_session]
-command = "agreety --cmd 'uwsm start hyprland-uwsm.desktop'"
-user = "greetd"
+command = "agreety --cmd /usr/local/bin/02os-session"
+user = "greeter"
 
 [initial_session]
-command = "uwsm start hyprland-uwsm.desktop"
+command = "/usr/local/bin/02os-session"
 user = "live"

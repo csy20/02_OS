@@ -1,0 +1,12 @@
+[Unit]
+Description=Ensure 02_OS live user and group
+After=systemd-sysusers.service
+Before=greetd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/02os-ensure-live-user
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target

@@ -18,7 +18,7 @@ case "${choice}" in
   "Wi-Fi") exec nm-connection-editor ;;
   "Bluetooth") exec blueman-manager ;;
   "Sound") exec pavucontrol ;;
-  "Install 02_OS") exec pkexec calamares ;;
+  "Install 02_OS") exec kitty --title "Install 02_OS" -e sudo archinstall ;;
   "Sleep") exec systemctl suspend ;;
   "Restart") exec systemctl reboot ;;
   "Shut Down") exec systemctl poweroff ;;

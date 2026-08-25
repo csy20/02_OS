@@ -64,7 +64,7 @@ NVIDIA users: the live session uses nouveau/mesa. A proprietary-driver ISO is a 
 ├── profile/
 │   ├── profiledef.sh
 │   ├── packages.x86_64
-│   └── airootfs/          # overlay: session, Hyprland, Calamares, helpers
+│   └── airootfs/          # overlay: session, Hyprland, helpers
 └── out/                   # generated ISOs
 ```
 
@@ -108,11 +108,9 @@ Give QEMU a virtio GPU if you can (`-device virtio-vga-gl -display gtk,gl=on`) s
 
 ## Install
 
-From the live desktop: dock **Install 02_OS**, or `sudo -E calamares`.
+From the live desktop: dock **Install 02_OS**, or `sudo archinstall`.
 
-Fallback: `sudo archinstall`.
-
-After a Calamares install, the live autologin user is removed; log in as the user you created (agreety, then Hyprland via uwsm).
+`archinstall` will ask for a username and bootloader. After install, boot from disk and log in (agreety, then Hyprland via uwsm).
 
 ---
 

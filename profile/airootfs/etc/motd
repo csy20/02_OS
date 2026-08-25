@@ -5,4 +5,4 @@ Welcome to 02_OS — Hyprland desktop on Arch Linux.
   Super+Q       Quit focused window
   Super+Return  Terminal
 
-Install from the dock, or run:  sudo -E calamares
+Install from the dock, or run:  sudo archinstall

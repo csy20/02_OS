@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Ensure the live user/group exist even if sysusers could not allocate GID 1000.
+set -u
+
+if ! getent group 1000 >/dev/null 2>&1; then
+  groupadd -g 1000 live 2>/dev/null || true
+fi
+if ! getent group live >/dev/null 2>&1; then
+  groupadd live 2>/dev/null || true
+fi
+
+if getent passwd live >/dev/null 2>&1; then
+  usermod -aG wheel,audio,video,input,storage,optical,network,lp,users,rfkill live 2>/dev/null || true
+fi
+
+if [[ ! -d /home/live ]]; then
+  mkdir -p /home/live
+  cp -a /etc/skel/. /home/live/ 2>/dev/null || true
+fi
+chown -R live:live /home/live 2>/dev/null || chown -R 1000:1000 /home/live 2>/dev/null || true
+chmod 750 /home/live 2>/dev/null || true
+exit 0

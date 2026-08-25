@@ -31,4 +31,6 @@ file_permissions=(
   ["/usr/local/bin/02os-apple-menu"]="0:0:755"
   ["/usr/local/bin/02os-window-switcher"]="0:0:755"
   ["/usr/local/bin/02os-installed-cleanup"]="0:0:755"
+  ["/usr/local/bin/02os-session"]="0:0:755"
+  ["/usr/local/bin/02os-ensure-live-user"]="0:0:755"
 )

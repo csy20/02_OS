@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Start Hyprland via uwsm. Use software GL when the VM has no DRM device.
+set -euo pipefail
+
+if ! compgen -G '/dev/dri/card*' >/dev/null; then
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export GALLIUM_DRIVER=llvmpipe
+fi
+
+exec uwsm start hyprland-uwsm.desktop
