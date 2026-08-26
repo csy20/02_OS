@@ -1,8 +1,11 @@
 Welcome to 02_OS — Hyprland desktop on Arch Linux.
 
+  Live login:   user live   password live
   Super+Space   Spotlight
   Alt+F4        Close window, or shut down on the desktop
   Super+Q       Quit focused window
   Super+Return  Terminal
+  Super+L       Lock screen (unlock with live)
 
 Install from the dock, or run:  sudo archinstall
+

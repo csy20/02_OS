@@ -17,7 +17,7 @@ Built with `archiso` in a privileged Docker container.
 | **Theme** | adw-gtk3-dark, Papirus, Capitaine cursors, Inter |
 | **Audio / net** | PipeWire + NetworkManager (no duplicate network stacks) |
 
-Live session user is **`live`** (autologin, no password). The desktop does **not** run as root.
+Live session user is **`live`** (autologin, password **`live`**). The desktop does **not** run as root. Use that password on the lock screen (Super+L or idle).
 
 ---
 
