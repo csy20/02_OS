@@ -6,33 +6,36 @@
 }
 
 window#waybar {
-    background: rgba(22, 22, 24, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
+    background: rgba(22, 22, 24, 0.78);
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0;
     color: #f5f5f7;
 }
 
 #custom-logo,
-#workspaces,
 #window,
 #clock,
+#workspaces,
 #pulseaudio,
 #network,
 #bluetooth,
 #battery,
-#custom-notifications,
-#tray {
+#custom-notifications {
     padding: 0 10px;
-    margin: 3px 2px;
+    margin: 0;
+    background: transparent;
 }
 
 #custom-logo {
     font-weight: 600;
     padding-left: 14px;
+    padding-right: 8px;
 }
 
 #window {
-    color: rgba(245, 245, 247, 0.9);
+    color: rgba(245, 245, 247, 0.92);
+    font-weight: 600;
 }
 
 #clock {
@@ -41,32 +44,26 @@ window#waybar {
 }
 
 #workspaces button {
-    color: rgba(255, 255, 255, 0.35);
-    padding: 0 4px;
+    color: rgba(255, 255, 255, 0.28);
+    padding: 0 3px;
+    min-width: 12px;
     background: transparent;
     border: none;
+    box-shadow: none;
 }
 
 #workspaces button.active {
     color: #ffffff;
 }
 
-#battery.warning {
-    color: #f5d76e;
-}
-
-#battery.critical {
-    color: #ff6b6b;
-}
-
+#battery.warning { color: #f5d76e; }
+#battery.critical { color: #ff6b6b; }
 #pulseaudio.muted,
-#network.disconnected {
-    color: rgba(255, 255, 255, 0.45);
-}
+#network.disconnected { color: rgba(255, 255, 255, 0.4); }
 
 tooltip {
     background: rgba(28, 28, 30, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     color: #f5f5f7;
 }
