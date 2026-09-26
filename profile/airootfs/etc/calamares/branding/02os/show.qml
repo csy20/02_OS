@@ -39,7 +39,7 @@ Presentation {
         Text {
             anchors.centerIn: parent
             horizontalAlignment: Text.AlignHCenter
-            text: "Hyprland desktop\nMac-like shell, built on Arch"
+            text: "GNOME desktop\nMac-like shell, built on Arch"
             color: "#f5f5f7"
             font.pixelSize: 24
             font.family: "Inter"
