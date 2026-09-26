@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=02_OS
+Comment=GNOME desktop with optional Pop Shell tiling
+Exec=/usr/local/bin/02os-gnome-session
+TryExec=/usr/local/bin/02os-gnome-session
+Type=Application
+DesktopNames=GNOME

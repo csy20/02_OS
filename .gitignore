@@ -13,3 +13,6 @@ profile/airootfs/etc/skel/.config/gh/
 profile/airootfs/etc/skel/.config/cursor/
 profile/airootfs/etc/skel/.config/seanime-denshi/
 profile/airootfs/etc/skel/.config/go/
+__pycache__/
+*.pyc
+

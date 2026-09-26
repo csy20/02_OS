@@ -1,11 +1,11 @@
-Welcome to 02_OS — Hyprland desktop on Arch Linux.
+Welcome to 02_OS — GNOME desktop on Arch Linux (Pop-style).
 
   Live login:   user live   password live
-  Super+Space   Spotlight
-  Alt+F4        Close window, or shut down on the desktop
-  Super+Q       Quit focused window
-  Super+Return  Terminal
-  Super+L       Lock screen (unlock with live)
+  Super+Y       Toggle tiling (off by default)
+  Super+Q / Alt+F4   Close window
+  Super+T       Terminal
+  Super+F       Files
+  Right-click dock icons to pin or unpin
+  Trash sits on the right of the dock
 
-Install from the dock, or run:  sudo archinstall
-
+Install from Settings, or run:  sudo archinstall

@@ -9,9 +9,14 @@ if ! getent group live >/dev/null 2>&1; then
   groupadd live 2>/dev/null || true
 fi
 
-if getent passwd live >/dev/null 2>&1; then
+if ! getent passwd live >/dev/null 2>&1; then
+  useradd -m -u 1000 -g live -G wheel,audio,video,input,storage,optical,network,lp,users,rfkill -s /usr/bin/zsh live 2>/dev/null || \
+  useradd -m -G wheel,audio,video,input,storage,optical,network,lp,users,rfkill -s /usr/bin/zsh live 2>/dev/null || true
+else
   usermod -aG wheel,audio,video,input,storage,optical,network,lp,users,rfkill live 2>/dev/null || true
 fi
+
+echo "live:live" | chpasswd 2>/dev/null || true
 
 if [[ ! -d /home/live ]]; then
   mkdir -p /home/live
