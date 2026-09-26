@@ -11,29 +11,32 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROFILE_DIR="${REPO_ROOT}/profile"
 OUT_DIR="${REPO_ROOT}/out"
 
-# Source version from profiledef.sh
-ISO_VERSION="$(date --date="@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y.%m.%d)"
+EXISTING_ISO="$(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" 2>/dev/null | head -n 1 || true)"
+
+if [[ -n "${EXISTING_ISO}" && -f "${EXISTING_ISO}" && "${1:-}" != "--force-rebuild" ]]; then
+    echo "Found existing ISO at ${EXISTING_ISO}. Skipping build step."
+    ISO_PATH="${EXISTING_ISO}"
+else
+    echo "=== [Step 1/5] Building 02_OS Live ISO ==="
+    "${REPO_ROOT}/build.sh"
+    ISO_PATH="$(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" | head -n 1)"
+fi
+
+if [[ -z "${ISO_PATH:-}" || ! -f "${ISO_PATH}" ]]; then
+    echo "ERROR: ISO file not found in ${OUT_DIR}" >&2
+    exit 1
+fi
+
+ISO_NAME="$(basename "${ISO_PATH}")"
+ISO_VERSION="$(echo "${ISO_NAME}" | sed -E 's/^02_OS-(.*)-x86_64\.iso$/\1/')"
 TAG_NAME="v${ISO_VERSION}"
 RELEASE_TITLE="02_OS v${ISO_VERSION}"
-ISO_NAME="02_OS-${ISO_VERSION}-x86_64.iso"
-ISO_PATH="${OUT_DIR}/${ISO_NAME}"
 
 echo "============================================================"
 echo " Starting 02_OS Release: ${RELEASE_TITLE} (${TAG_NAME})"
 echo " Repo: ${REPO_ROOT}"
-echo " ISO:  ${ISO_PATH}"
+echo " ISO:  ${ISO_PATH} ($(du -h "${ISO_PATH}" | cut -f1))"
 echo "============================================================"
-
-# Step 1: Build the ISO using build.sh
-echo "=== [Step 1/5] Building 02_OS Live ISO ==="
-"${REPO_ROOT}/build.sh"
-
-if [[ ! -f "${ISO_PATH}" ]]; then
-    echo "ERROR: Expected ISO file not found at ${ISO_PATH}" >&2
-    exit 1
-fi
-
-echo "ISO successfully built: ${ISO_PATH} ($(du -h "${ISO_PATH}" | cut -f1))"
 
 # Step 2: Generate Checksums & Split ISO
 echo "=== [Step 2/5] Splitting ISO into 1.4GB Parts & Computing Checksums ==="
