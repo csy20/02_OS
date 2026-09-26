@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import os
 
-ICONS_DIR = "/home/csy20/Documents/dev/02_OS/profile/airootfs/usr/share/icons/02-OS/scalable"
-HTML_OUT = "/home/csy20/Documents/dev/02_OS/02-OS-icons-preview.html"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+ICONS_DIR = os.path.join(REPO_ROOT, "profile", "airootfs", "usr", "share", "icons", "02-OS", "scalable")
+HTML_OUT = os.path.join(REPO_ROOT, "02-OS-icons-preview.html")
 
 categories = ["apps", "places", "devices", "categories", "mimetypes", "status", "actions"]
 

@@ -12,9 +12,10 @@ from icons_places import get_places_icons
 from icons_devices_categories import get_devices_icons, get_categories_icons, get_mimetypes_icons
 from icons_status_actions import get_status_icons, get_actions_icons
 
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+
 TARGET_PATHS = [
-    "/home/csy20/Documents/dev/02_OS/profile/airootfs/usr/share/icons/02-OS",
-    "/home/csy20/02_OS/airootfs/usr/share/icons/02-OS",
+    os.path.join(REPO_ROOT, "profile", "airootfs", "usr", "share", "icons", "02-OS"),
     os.path.expanduser("~/.local/share/icons/02-OS")
 ]
 

@@ -8,9 +8,11 @@ import os
 import sys
 import subprocess
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+
 TARGET_DIRS = [
-    "/home/csy20/Documents/dev/02_OS/profile/airootfs/usr/share/icons/02-OS",
-    "/home/csy20/02_OS/airootfs/usr/share/icons/02-OS",
+    os.path.join(REPO_ROOT, "profile", "airootfs", "usr", "share", "icons", "02-OS"),
     os.path.expanduser("~/.local/share/icons/02-OS")
 ]
 
