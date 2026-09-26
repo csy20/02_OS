@@ -31,8 +31,7 @@ impl ContextCompiler {
         let db_path = StoragePaths::repo_db_path(repo_id)?;
         if !db_path.exists() {
             return Err(AgentError::General(
-                "Repository is not indexed yet. Run '02 init' or '02 index' first."
-                    .to_string(),
+                "Repository is not indexed yet. Run '02 init' or '02 index' first.".to_string(),
             ));
         }
 
@@ -75,6 +74,7 @@ impl ContextCompiler {
         let mut seen_symbols: HashSet<String> = HashSet::new();
 
         // Signal A: Working tree diff
+        let diff_set: HashSet<&str> = diff_files.iter().map(|s| s.as_str()).collect();
         for df in &diff_files {
             let entry = file_scores.entry(df.clone()).or_insert((0.0, Vec::new()));
             entry.0 += 8.0;
@@ -99,7 +99,7 @@ impl ContextCompiler {
                 let mut sym_score = base_score;
                 let mut reasons = vec![reason];
 
-                if diff_files.contains(&sym.file_path) {
+                if diff_set.contains(sym.file_path.as_str()) {
                     sym_score += 8.0;
                     reasons.push("symbol in dirty working-tree file".to_string());
                 }

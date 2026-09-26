@@ -176,8 +176,11 @@ set_default_card() {
 
 play_on_card() {
     local card="$1" file="$2"
-    aplay -q "-Dplughw:$card,0" "$file"
+    if [[ -f "$file" ]]; then
+        aplay -q "-Dplughw:$card,0" "$file" 2>/dev/null || true
+    fi
 }
+
 
 # If there are multiple usable sound cards, prompt the user to choose one,
 # using auditory feedback.

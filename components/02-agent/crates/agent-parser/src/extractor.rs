@@ -82,17 +82,27 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
                     let sig = full_text.lines().next().unwrap_or(name).to_string();
 
-                    // Check for #[test] attribute or test_ prefix
-                    let row = node.start_position().row;
-                    let is_test = name.starts_with("test_") || full_text.contains("#[test]") || {
-                        let lines: Vec<&str> = content.lines().collect();
-                        let start = row.saturating_sub(3);
-                        if start < row && row <= lines.len() {
-                            lines[start..row].iter().any(|l| l.contains("#[test]"))
+                    // Check for #[test] attribute or test_ prefix without heap allocations
+                    let mut has_test_attr = false;
+                    let mut prev_sibling = node.prev_sibling();
+                    while let Some(sibling) = prev_sibling {
+                        if sibling.kind() == "attribute_item" {
+                            let attr_text = &content[sibling.byte_range()];
+                            if attr_text.contains("test") {
+                                has_test_attr = true;
+                                break;
+                            }
+                            prev_sibling = sibling.prev_sibling();
                         } else {
-                            false
+                            break;
                         }
-                    };
+                    }
+                    let pre_start = node.start_byte().saturating_sub(256);
+                    let pre_slice = &content[pre_start..node.start_byte()];
+                    let is_test = name.starts_with("test_")
+                        || full_text.contains("#[test]")
+                        || has_test_attr
+                        || pre_slice.contains("#[test]");
 
                     let sym = Symbol {
                         id: format!("{}::{}::{}", file_path, name, start_line),

@@ -15,5 +15,10 @@ profile/airootfs/etc/skel/.config/seanime-denshi/
 profile/airootfs/etc/skel/.config/go/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .02agent/
+target/
+components/02-agent/target/
+
 

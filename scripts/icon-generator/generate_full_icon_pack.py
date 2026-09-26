@@ -13,8 +13,10 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 
 TARGET_DIRS = [
     os.path.join(REPO_ROOT, "profile", "airootfs", "usr", "share", "icons", "02-OS"),
-    os.path.expanduser("~/.local/share/icons/02-OS")
 ]
+if "--install-user" in sys.argv or "--install" in sys.argv:
+    TARGET_DIRS.append(os.path.expanduser("~/.local/share/icons/02-OS"))
+
 
 INDEX_THEME = """[Icon Theme]
 Name=02-OS

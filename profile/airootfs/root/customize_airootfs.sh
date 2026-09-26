@@ -21,3 +21,12 @@ fi
 
 echo "==> Unlocking blank root password for live environment..."
 passwd -d root 2>/dev/null || true
+
+echo "==> Uncommenting HTTPS mirrors in /etc/pacman.d/mirrorlist..."
+if [[ -f /etc/pacman.d/mirrorlist ]]; then
+  sed -i -E 's/^#(Server = https:)/\1/' /etc/pacman.d/mirrorlist 2>/dev/null || true
+  if ! grep -q '^Server = https' /etc/pacman.d/mirrorlist 2>/dev/null; then
+    sed -i -E 's/^#(Server =)/\1/' /etc/pacman.d/mirrorlist 2>/dev/null || true
+  fi
+fi
+
