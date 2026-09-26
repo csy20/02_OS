@@ -43,12 +43,11 @@ toggle-tiled-right=@as []
 
 [org/gnome/shell]
 disable-user-extensions=false
-favorite-apps=['org.gnome.Nautilus.desktop','firefox.desktop','org.gnome.Console.desktop','org.gnome.Settings.desktop']
+favorite-apps=['02os-install.desktop','org.gnome.Nautilus.desktop','firefox.desktop','org.gnome.Console.desktop','org.gnome.Settings.desktop']
 enabled-extensions=['dash-to-dock@micxgx.gmail.com','pop-shell@system76.com']
 
 [org/gnome/shell/keybindings]
 toggle-message-tray=['<Super>v']
-toggle-overview=@as []
 
 [org/gnome/shell/extensions/dash-to-dock]
 dock-position='BOTTOM'

@@ -15,7 +15,13 @@ export XDG_MENU_PREFIX=gnome-
 if ! compgen -G '/dev/dri/card*' >/dev/null 2>&1; then
   export LIBGL_ALWAYS_SOFTWARE=1
   export GALLIUM_DRIVER=llvmpipe
-  export GSK_RENDERER=cairo
 fi
+
+# Propagate session environment to systemd --user and D-Bus activation environments
+systemctl --user import-environment \
+  LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER \
+  MOZ_ENABLE_WAYLAND QT_QPA_PLATFORM \
+  XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE 2>/dev/null || true
+dbus-update-activation-environment --systemd --all 2>/dev/null || true
 
 exec /usr/bin/gnome-session
