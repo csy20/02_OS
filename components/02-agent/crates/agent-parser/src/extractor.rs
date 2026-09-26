@@ -1,0 +1,838 @@
+use agent_core::{
+    types::{Language, ReferenceKind, Symbol, SymbolKind, SymbolReference},
+    Result,
+};
+use regex::Regex;
+use sha2::{Digest, Sha256};
+use tree_sitter::{Node, Parser};
+
+pub struct ExtractionResult {
+    pub symbols: Vec<Symbol>,
+    pub references: Vec<SymbolReference>,
+}
+
+pub struct CodeExtractor;
+
+impl CodeExtractor {
+    pub fn extract(file_path: &str, content: &str, language: Language) -> Result<ExtractionResult> {
+        match language {
+            Language::Rust => Self::extract_rust(file_path, content),
+            Language::Python => Self::extract_python(file_path, content),
+            Language::C | Language::Cpp => Self::extract_c_cpp(file_path, content),
+            Language::Bash => Self::extract_bash(file_path, content),
+            Language::JavaScript | Language::TypeScript => Self::extract_js_ts(file_path, content),
+            Language::Dart => Self::extract_dart(file_path, content),
+            _ => Self::extract_fallback(file_path, content),
+        }
+    }
+
+    fn symbol_fingerprint(text: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(text.trim().as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    // -------------------------------------------------------------
+    // RUST
+    // -------------------------------------------------------------
+    fn extract_rust(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut parser = Parser::new();
+        let _ = parser.set_language(&tree_sitter_rust::LANGUAGE.into());
+        let tree = match parser.parse(content, None) {
+            Some(t) => t,
+            None => return Self::extract_fallback(file_path, content),
+        };
+
+        let mut symbols = Vec::new();
+        let mut references = Vec::new();
+        let root = tree.root_node();
+
+        Self::walk_rust_node(
+            file_path,
+            content,
+            root,
+            &mut symbols,
+            &mut references,
+            None,
+        );
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+
+    fn walk_rust_node(
+        file_path: &str,
+        content: &str,
+        node: Node,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+        current_symbol: Option<&str>,
+    ) {
+        let kind = node.kind();
+        let mut active_symbol = current_symbol;
+
+        match kind {
+            "function_item" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+                    let sig = full_text.lines().next().unwrap_or(name).to_string();
+
+                    // Check for #[test] attribute or test_ prefix
+                    let row = node.start_position().row;
+                    let is_test = name.starts_with("test_") || full_text.contains("#[test]") || {
+                        let lines: Vec<&str> = content.lines().collect();
+                        let start = row.saturating_sub(3);
+                        if start < row && row <= lines.len() {
+                            lines[start..row].iter().any(|l| l.contains("#[test]"))
+                        } else {
+                            false
+                        }
+                    };
+
+                    let sym = Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Function,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: Some(sig),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    };
+                    symbols.push(sym);
+                    active_symbol = Some(name);
+
+                    if is_test {
+                        // Mark test reference
+                        references.push(SymbolReference {
+                            source_file: file_path.to_string(),
+                            source_symbol_name: Some(name.to_string()),
+                            target_name: name.to_string(),
+                            target_symbol_id: None,
+                            kind: ReferenceKind::Tests,
+                            line_number: start_line,
+                        });
+                    }
+                }
+            }
+            "struct_item" | "enum_item" | "trait_item" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+                    let sym_kind = match kind {
+                        "struct_item" => SymbolKind::Struct,
+                        "enum_item" => SymbolKind::Enum,
+                        _ => SymbolKind::Trait,
+                    };
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: sym_kind,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: full_text.lines().next().map(|s| s.to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(name);
+                }
+            }
+            "call_expression" => {
+                if let Some(func_node) = node.child_by_field_name("function") {
+                    let target_name = &content[func_node.byte_range()];
+                    let line = node.start_position().row + 1;
+                    let clean_target = target_name
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or(target_name)
+                        .trim();
+
+                    references.push(SymbolReference {
+                        source_file: file_path.to_string(),
+                        source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        target_name: clean_target.to_string(),
+                        target_symbol_id: None,
+                        kind: ReferenceKind::Calls,
+                        line_number: line,
+                    });
+                }
+            }
+            "use_declaration" => {
+                let use_text = &content[node.byte_range()];
+                let line = node.start_position().row + 1;
+                let target = use_text
+                    .trim_start_matches("use ")
+                    .trim_end_matches(';')
+                    .trim();
+                references.push(SymbolReference {
+                    source_file: file_path.to_string(),
+                    source_symbol_name: None,
+                    target_name: target.to_string(),
+                    target_symbol_id: None,
+                    kind: ReferenceKind::Imports,
+                    line_number: line,
+                });
+            }
+            _ => {}
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_rust_node(
+                file_path,
+                content,
+                child,
+                symbols,
+                references,
+                active_symbol,
+            );
+        }
+    }
+
+    // -------------------------------------------------------------
+    // PYTHON
+    // -------------------------------------------------------------
+    fn extract_python(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut parser = Parser::new();
+        let _ = parser.set_language(&tree_sitter_python::LANGUAGE.into());
+        let tree = match parser.parse(content, None) {
+            Some(t) => t,
+            None => return Self::extract_fallback(file_path, content),
+        };
+
+        let mut symbols = Vec::new();
+        let mut references = Vec::new();
+        let root = tree.root_node();
+
+        Self::walk_python_node(
+            file_path,
+            content,
+            root,
+            &mut symbols,
+            &mut references,
+            None,
+        );
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+
+    fn walk_python_node(
+        file_path: &str,
+        content: &str,
+        node: Node,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+        current_symbol: Option<&str>,
+    ) {
+        let kind = node.kind();
+        let mut active_symbol = current_symbol;
+
+        match kind {
+            "function_definition" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+                    let sig = full_text.lines().next().unwrap_or(name).to_string();
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Function,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: Some(sig),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(name);
+
+                    if name.starts_with("test_") {
+                        references.push(SymbolReference {
+                            source_file: file_path.to_string(),
+                            source_symbol_name: Some(name.to_string()),
+                            target_name: name.to_string(),
+                            target_symbol_id: None,
+                            kind: ReferenceKind::Tests,
+                            line_number: start_line,
+                        });
+                    }
+                }
+            }
+            "class_definition" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Class,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: full_text.lines().next().map(|s| s.to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(name);
+                }
+            }
+            "call" => {
+                if let Some(func_node) = node.child_by_field_name("function") {
+                    let call_name = &content[func_node.byte_range()];
+                    let clean = call_name.split('.').next_back().unwrap_or(call_name).trim();
+                    let line = node.start_position().row + 1;
+
+                    references.push(SymbolReference {
+                        source_file: file_path.to_string(),
+                        source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        target_name: clean.to_string(),
+                        target_symbol_id: None,
+                        kind: ReferenceKind::Calls,
+                        line_number: line,
+                    });
+                }
+            }
+            "import_statement" | "import_from_statement" => {
+                let text = &content[node.byte_range()];
+                let line = node.start_position().row + 1;
+                references.push(SymbolReference {
+                    source_file: file_path.to_string(),
+                    source_symbol_name: None,
+                    target_name: text.trim().to_string(),
+                    target_symbol_id: None,
+                    kind: ReferenceKind::Imports,
+                    line_number: line,
+                });
+            }
+            _ => {}
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_python_node(
+                file_path,
+                content,
+                child,
+                symbols,
+                references,
+                active_symbol,
+            );
+        }
+    }
+
+    // -------------------------------------------------------------
+    // C / C++
+    // -------------------------------------------------------------
+    fn extract_c_cpp(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut parser = Parser::new();
+        let _ = parser.set_language(&tree_sitter_c::LANGUAGE.into());
+        let tree = match parser.parse(content, None) {
+            Some(t) => t,
+            None => return Self::extract_fallback(file_path, content),
+        };
+
+        let mut symbols = Vec::new();
+        let mut references = Vec::new();
+        let root = tree.root_node();
+
+        Self::walk_c_node(
+            file_path,
+            content,
+            root,
+            &mut symbols,
+            &mut references,
+            None,
+        );
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+
+    fn walk_c_node(
+        file_path: &str,
+        content: &str,
+        node: Node,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+        current_symbol: Option<&str>,
+    ) {
+        let kind = node.kind();
+        let mut active_symbol = current_symbol;
+
+        match kind {
+            "function_definition" => {
+                if let Some(declarator) = node.child_by_field_name("declarator") {
+                    let decl_text = &content[declarator.byte_range()];
+                    let func_name = decl_text
+                        .split('(')
+                        .next()
+                        .unwrap_or(decl_text)
+                        .trim()
+                        .trim_start_matches('*');
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, func_name, start_line),
+                        name: func_name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, func_name),
+                        kind: SymbolKind::Function,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: full_text.lines().next().map(|s| s.to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(func_name);
+                }
+            }
+            "struct_specifier" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Struct,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: full_text.lines().next().map(|s| s.to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                }
+            }
+            "call_expression" => {
+                if let Some(func_node) = node.child_by_field_name("function") {
+                    let target = &content[func_node.byte_range()];
+                    let line = node.start_position().row + 1;
+                    references.push(SymbolReference {
+                        source_file: file_path.to_string(),
+                        source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        target_name: target.to_string(),
+                        target_symbol_id: None,
+                        kind: ReferenceKind::Calls,
+                        line_number: line,
+                    });
+                }
+            }
+            "preproc_include" => {
+                let text = &content[node.byte_range()];
+                let line = node.start_position().row + 1;
+                references.push(SymbolReference {
+                    source_file: file_path.to_string(),
+                    source_symbol_name: None,
+                    target_name: text.trim().to_string(),
+                    target_symbol_id: None,
+                    kind: ReferenceKind::Imports,
+                    line_number: line,
+                });
+            }
+            _ => {}
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_c_node(
+                file_path,
+                content,
+                child,
+                symbols,
+                references,
+                active_symbol,
+            );
+        }
+    }
+
+    // -------------------------------------------------------------
+    // BASH
+    // -------------------------------------------------------------
+    fn extract_bash(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut parser = Parser::new();
+        let _ = parser.set_language(&tree_sitter_bash::LANGUAGE.into());
+        let tree = match parser.parse(content, None) {
+            Some(t) => t,
+            None => return Self::extract_fallback(file_path, content),
+        };
+
+        let mut symbols = Vec::new();
+        let mut references = Vec::new();
+        let root = tree.root_node();
+
+        Self::walk_bash_node(
+            file_path,
+            content,
+            root,
+            &mut symbols,
+            &mut references,
+            None,
+        );
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+
+    fn walk_bash_node(
+        file_path: &str,
+        content: &str,
+        node: Node,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+        current_symbol: Option<&str>,
+    ) {
+        let kind = node.kind();
+        let mut active_symbol = current_symbol;
+
+        match kind {
+            "function_definition" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Function,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: Some(format!("function {}()", name)),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(name);
+                }
+            }
+            "variable_assignment" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Variable,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: Some(full_text.lines().next().unwrap_or(name).to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                }
+            }
+            "command" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let cmd_name = &content[name_node.byte_range()];
+                    let line = node.start_position().row + 1;
+
+                    references.push(SymbolReference {
+                        source_file: file_path.to_string(),
+                        source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        target_name: cmd_name.to_string(),
+                        target_symbol_id: None,
+                        kind: ReferenceKind::Calls,
+                        line_number: line,
+                    });
+                }
+            }
+            _ => {}
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_bash_node(
+                file_path,
+                content,
+                child,
+                symbols,
+                references,
+                active_symbol,
+            );
+        }
+    }
+
+    // -------------------------------------------------------------
+    // JAVASCRIPT / TYPESCRIPT
+    // -------------------------------------------------------------
+    fn extract_js_ts(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut parser = Parser::new();
+        let _ = parser.set_language(&tree_sitter_javascript::LANGUAGE.into());
+        let tree = match parser.parse(content, None) {
+            Some(t) => t,
+            None => return Self::extract_fallback(file_path, content),
+        };
+
+        let mut symbols = Vec::new();
+        let mut references = Vec::new();
+        let root = tree.root_node();
+
+        Self::walk_js_node(
+            file_path,
+            content,
+            root,
+            &mut symbols,
+            &mut references,
+            None,
+        );
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+
+    fn walk_js_node(
+        file_path: &str,
+        content: &str,
+        node: Node,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+        current_symbol: Option<&str>,
+    ) {
+        let kind = node.kind();
+        let mut active_symbol = current_symbol;
+
+        match kind {
+            "function_declaration" | "method_definition" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Function,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: full_text.lines().next().map(|s| s.to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(name);
+                }
+            }
+            "class_declaration" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    let start_line = node.start_position().row + 1;
+                    let end_line = node.end_position().row + 1;
+                    let full_text = &content[node.byte_range()];
+
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Class,
+                        file_path: file_path.to_string(),
+                        start_line,
+                        end_line,
+                        signature: full_text.lines().next().map(|s| s.to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(full_text),
+                    });
+                    active_symbol = Some(name);
+                }
+            }
+            "call_expression" => {
+                if let Some(func_node) = node.child_by_field_name("function") {
+                    let target = &content[func_node.byte_range()];
+                    let clean = target.split('.').next_back().unwrap_or(target).trim();
+                    let line = node.start_position().row + 1;
+
+                    let is_test_runner = clean == "test" || clean == "it" || clean == "describe";
+
+                    references.push(SymbolReference {
+                        source_file: file_path.to_string(),
+                        source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        target_name: clean.to_string(),
+                        target_symbol_id: None,
+                        kind: if is_test_runner {
+                            ReferenceKind::Tests
+                        } else {
+                            ReferenceKind::Calls
+                        },
+                        line_number: line,
+                    });
+                }
+            }
+            "import_statement" => {
+                let text = &content[node.byte_range()];
+                let line = node.start_position().row + 1;
+                references.push(SymbolReference {
+                    source_file: file_path.to_string(),
+                    source_symbol_name: None,
+                    target_name: text.trim().to_string(),
+                    target_symbol_id: None,
+                    kind: ReferenceKind::Imports,
+                    line_number: line,
+                });
+            }
+            _ => {}
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            Self::walk_js_node(
+                file_path,
+                content,
+                child,
+                symbols,
+                references,
+                active_symbol,
+            );
+        }
+    }
+
+    // -------------------------------------------------------------
+    // DART & HEURISTIC FALLBACK
+    // -------------------------------------------------------------
+    fn extract_dart(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut symbols = Vec::new();
+        let mut references = Vec::new();
+
+        let class_re = Regex::new(r"class\s+([A-Za-z0-9_]+)").unwrap();
+        let func_re =
+            Regex::new(r"(?:[A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*\{").unwrap();
+        let call_re = Regex::new(r"([A-Za-z0-9_]+)\s*\(").unwrap();
+
+        for (idx, line) in content.lines().enumerate() {
+            let line_num = idx + 1;
+            if let Some(caps) = class_re.captures(line) {
+                if let Some(m) = caps.get(1) {
+                    let name = m.as_str();
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, name, line_num),
+                        name: name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, name),
+                        kind: SymbolKind::Class,
+                        file_path: file_path.to_string(),
+                        start_line: line_num,
+                        end_line: line_num,
+                        signature: Some(line.trim().to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(line),
+                    });
+                }
+            } else if let Some(caps) = func_re.captures(line) {
+                if let Some(m) = caps.get(1) {
+                    let name = m.as_str();
+                    if name != "if" && name != "while" && name != "for" && name != "switch" {
+                        symbols.push(Symbol {
+                            id: format!("{}::{}::{}", file_path, name, line_num),
+                            name: name.to_string(),
+                            qualified_name: format!("{}::{}", file_path, name),
+                            kind: SymbolKind::Function,
+                            file_path: file_path.to_string(),
+                            start_line: line_num,
+                            end_line: line_num,
+                            signature: Some(line.trim().to_string()),
+                            doc_comment: None,
+                            fingerprint: Self::symbol_fingerprint(line),
+                        });
+                    }
+                }
+            }
+
+            for caps in call_re.captures_iter(line) {
+                if let Some(m) = caps.get(1) {
+                    let name = m.as_str();
+                    let skip = ["if", "for", "while", "switch", "catch", "print"];
+                    if !skip.contains(&name) {
+                        references.push(SymbolReference {
+                            source_file: file_path.to_string(),
+                            source_symbol_name: None,
+                            target_name: name.to_string(),
+                            target_symbol_id: None,
+                            kind: ReferenceKind::Calls,
+                            line_number: line_num,
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+
+    fn extract_fallback(file_path: &str, content: &str) -> Result<ExtractionResult> {
+        let mut symbols = Vec::new();
+        let references = Vec::new();
+
+        let func_re = Regex::new(r"^(?:pub\s+)?(?:async\s+)?def\s+([A-Za-z0-9_]+)|^fn\s+([A-Za-z0-9_]+)|function\s+([A-Za-z0-9_]+)").unwrap();
+
+        for (idx, line) in content.lines().enumerate() {
+            let line_num = idx + 1;
+            if let Some(caps) = func_re.captures(line.trim()) {
+                let name = caps.get(1).or_else(|| caps.get(2)).or_else(|| caps.get(3));
+                if let Some(m) = name {
+                    let sym_name = m.as_str();
+                    symbols.push(Symbol {
+                        id: format!("{}::{}::{}", file_path, sym_name, line_num),
+                        name: sym_name.to_string(),
+                        qualified_name: format!("{}::{}", file_path, sym_name),
+                        kind: SymbolKind::Function,
+                        file_path: file_path.to_string(),
+                        start_line: line_num,
+                        end_line: line_num,
+                        signature: Some(line.trim().to_string()),
+                        doc_comment: None,
+                        fingerprint: Self::symbol_fingerprint(line),
+                    });
+                }
+            }
+        }
+
+        Ok(ExtractionResult {
+            symbols,
+            references,
+        })
+    }
+}

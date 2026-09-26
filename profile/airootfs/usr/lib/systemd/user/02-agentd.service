@@ -1,0 +1,20 @@
+[Unit]
+Description=02 Agent Runtime Daemon (Repository Intelligence & MCP Service)
+Documentation=https://github.com/csy20/02_OS
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/02-agentd
+Restart=on-failure
+RestartSec=3s
+Environment=RUST_LOG=info
+
+# User-level protection & sandboxing
+ProtectSystem=strict
+ProtectHome=read-write
+ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %t
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

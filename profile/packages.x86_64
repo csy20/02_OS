@@ -108,6 +108,7 @@ blueman
 fastfetch
 firefox
 git
+sqlite
 
 # GNOME (default session, Pop-style floating desktop)
 accountsservice

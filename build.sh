@@ -16,6 +16,12 @@ if [[ -d "${WORK_DIR}" ]]; then
 fi
 mkdir -p "${WORK_DIR}"
 
+# Build and stage 02 Agent Runtime binaries into airootfs
+if [[ -f "${SCRIPT_DIR}/scripts/build-agent-runtime.sh" ]]; then
+  echo "Building and staging 02 Agent Runtime..."
+  "${SCRIPT_DIR}/scripts/build-agent-runtime.sh"
+fi
+
 echo "============================================================"
 echo " Building 02_OS ISO via Docker (Arch Linux container)"
 echo " Profile: ${PROFILE_DIR}"

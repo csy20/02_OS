@@ -1,0 +1,14 @@
+pub mod connect;
+pub mod context;
+pub mod deps;
+pub mod doctor;
+pub mod index;
+pub mod init;
+pub mod mcp;
+pub mod memory;
+pub mod search;
+pub mod security;
+pub mod serve;
+pub mod status;
+pub mod symbol;
+pub mod tests;
