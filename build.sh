@@ -28,14 +28,21 @@ echo " Profile: ${PROFILE_DIR}"
 echo " Output:  ${OUT_DIR}"
 echo "============================================================"
 
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+
 docker run --rm --privileged \
+  -e HOST_UID="${HOST_UID}" \
+  -e HOST_GID="${HOST_GID}" \
   -v "${PROFILE_DIR}:/02_OS" \
   -v "${OUT_DIR}:/out" \
   -v "${WORK_DIR}:${WORK_DIR}" \
   archlinux:latest bash -c "
     pacman -Syu --noconfirm archiso && \
-    mkarchiso -v -w ${WORK_DIR} -o /out /02_OS
+    mkarchiso -v -w ${WORK_DIR} -o /out /02_OS && \
+    chown -R \"\${HOST_UID}:\${HOST_GID}\" /out \"${WORK_DIR}\" 2>/dev/null || true
   "
+
 
 echo ""
 echo "============================================================"

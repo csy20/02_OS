@@ -129,3 +129,9 @@ xorg-xprop
 
 # Optional VM testing
 qemu-guest-agent
+
+# Accessibility
+brltty
+espeak-ng
+espeakup
+

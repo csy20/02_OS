@@ -1,11 +1,12 @@
-use agent_core::{config::RepoConfig, paths::StoragePaths, Result};
+use agent_core::{config::RepoConfig, paths::StoragePaths, types::RepoId, Result};
 use agent_git::GitRepo;
 use agent_index::{IndexDatabase, RepoScanner};
 use agent_memory::{MemoryStore, StalenessEngine};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WatchedState {
@@ -14,6 +15,7 @@ pub struct WatchedState {
 
 pub struct RepoWatcher {
     state_file: PathBuf,
+    last_fingerprints: Mutex<HashMap<RepoId, String>>,
 }
 
 impl RepoWatcher {
@@ -22,6 +24,7 @@ impl RepoWatcher {
         fs::create_dir_all(&dir)?;
         Ok(Self {
             state_file: dir.join("watched_repos.json"),
+            last_fingerprints: Mutex::new(HashMap::new()),
         })
     }
 
@@ -102,9 +105,24 @@ impl RepoWatcher {
                 Err(_) => continue,
             };
 
-            // Check if commit changed or working tree is dirty
-            let needs_sync =
-                stats.last_indexed_commit != repo_info.head_commit || repo_info.modified_count > 0;
+            // Check if commit changed or working tree status changed
+            let head_changed = stats.last_indexed_commit != repo_info.head_commit;
+            let current_fingerprint = git_repo.status_fingerprint().unwrap_or_default();
+
+            let dirty_changed = {
+                let mut fps = self.last_fingerprints.lock().unwrap();
+                let prev_fp = fps.get(&repo_info.id);
+                let changed = match prev_fp {
+                    Some(fp) => fp != &current_fingerprint,
+                    None => repo_info.modified_count > 0,
+                };
+                if head_changed || changed {
+                    fps.insert(repo_info.id.clone(), current_fingerprint);
+                }
+                changed
+            };
+
+            let needs_sync = head_changed || dirty_changed;
 
             if needs_sync {
                 let config = RepoConfig::load_or_default(&repo_path);

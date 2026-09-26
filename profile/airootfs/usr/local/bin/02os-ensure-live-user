@@ -10,11 +10,16 @@ if ! getent group live >/dev/null 2>&1; then
 fi
 
 if ! getent passwd live >/dev/null 2>&1; then
-  useradd -m -u 1000 -g live -G wheel,audio,video,input,storage,optical,network,lp,users,rfkill -s /usr/bin/zsh live 2>/dev/null || \
-  useradd -m -G wheel,audio,video,input,storage,optical,network,lp,users,rfkill -s /usr/bin/zsh live 2>/dev/null || true
-else
-  usermod -aG wheel,audio,video,input,storage,optical,network,lp,users,rfkill live 2>/dev/null || true
+  useradd -m -u 1000 -g live -s /usr/bin/zsh live 2>/dev/null || \
+  useradd -m -s /usr/bin/zsh live 2>/dev/null || true
 fi
+
+for grp in wheel audio video input storage optical lp users rfkill power; do
+  if getent group "$grp" >/dev/null 2>&1; then
+    usermod -aG "$grp" live 2>/dev/null || true
+  fi
+done
+
 
 echo "live:live" | chpasswd 2>/dev/null || true
 

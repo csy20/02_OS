@@ -47,11 +47,12 @@ impl IndexDatabase {
         let conn = Connection::open(db_path.as_ref())
             .map_err(|e| AgentError::Database(format!("Cannot open SQLite database: {}", e)))?;
 
-        // Enable foreign keys and WAL mode for high concurrency
+        // Enable foreign keys, WAL mode, and busy timeout for high concurrency
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;",
+             PRAGMA synchronous = NORMAL;
+             PRAGMA busy_timeout = 5000;",
         )
         .map_err(|e| AgentError::Database(format!("Pragma setup failed: {}", e)))?;
 
@@ -66,7 +67,8 @@ impl IndexDatabase {
 
         conn.execute_batch(
             "PRAGMA foreign_keys = ON;
-             PRAGMA synchronous = OFF;",
+             PRAGMA synchronous = OFF;
+             PRAGMA busy_timeout = 5000;",
         )
         .map_err(|e| AgentError::Database(format!("Pragma setup failed: {}", e)))?;
 

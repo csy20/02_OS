@@ -97,6 +97,35 @@ impl GitRepo {
         Ok((is_clean, modified, untracked))
     }
 
+    /// Generates a status fingerprint of all uncommitted files and modification times.
+    /// Used by daemon watcher to prevent repeated re-indexing of unchanged dirty repositories.
+    pub fn status_fingerprint(&self) -> Result<String> {
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(true);
+        opts.renames_head_to_index(true);
+
+        let statuses = self
+            .repo
+            .statuses(Some(&mut opts))
+            .map_err(|e| AgentError::Git(format!("Failed to query status: {}", e)))?;
+
+        let mut entries = Vec::new();
+        for entry in statuses.iter() {
+            if let Some(path) = entry.path() {
+                let status_bits = entry.status().bits();
+                let full_path = self.root.join(path);
+                let mtime = full_path
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .map(|t| format!("{:?}", t))
+                    .unwrap_or_default();
+                entries.push(format!("{}:{}:{}", path, status_bits, mtime));
+            }
+        }
+        entries.sort();
+        Ok(entries.join(";"))
+    }
+
     pub fn info(&self) -> Result<RepoInfo> {
         let id = RepoId::from_path(&self.root);
         let name = self
