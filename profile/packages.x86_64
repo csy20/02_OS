@@ -4,7 +4,7 @@ arch-install-scripts
 archinstall
 base
 base-devel
-broadcom-wl
+broadcom-wl-dkms
 btrfs-progs
 cryptsetup
 dosfstools
@@ -17,6 +17,7 @@ gptfdisk
 grub
 intel-ucode
 linux
+linux-headers
 linux-firmware
 lvm2
 mdadm
@@ -75,47 +76,23 @@ vulkan-intel
 vulkan-radeon
 wireplumber
 
-# Hyprland Mac-like desktop
+# Desktop UI & Utilities
 adw-gtk-theme
 capitaine-cursors
-cliphist
-fuzzel
 greetd
-grim
 gsettings-desktop-schemas
 gvfs
 gvfs-mtp
-hypridle
-hyprland
-hyprlock
-hyprpaper
-hyprpicker
-hyprpolkitagent
 jq
-kitty
 libnotify
-nwg-dock-hyprland
-nwg-drawer
 papirus-icon-theme
 pavucontrol
 polkit
 qt5-wayland
 qt6-wayland
-slurp
-swaync
-thunar
-thunar-volman
-tumbler
-udiskie
-uwsm
-waybar
 wl-clipboard
-wlsunset
 xarchiver
-xdg-desktop-portal-gtk
-xdg-desktop-portal-hyprland
 xorg-xwayland
-yad
 
 # Fonts
 noto-fonts
@@ -130,6 +107,23 @@ blueman
 fastfetch
 firefox
 git
+
+# GNOME (default session, Pop-style floating desktop)
+accountsservice
+dconf
+gnome-console
+gnome-control-center
+gnome-keyring
+gnome-menus
+gnome-session
+gnome-settings-daemon
+gnome-shell
+gnome-tweaks
+nautilus
+power-profiles-daemon
+xdg-desktop-portal
+xdg-desktop-portal-gnome
+xorg-xprop
 
 # Optional VM testing
 qemu-guest-agent

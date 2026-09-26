@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# GNOME 50 session leader. Do not wrap in dbus-run-session: gnome-session
+# talks to the systemd --user bus that greetd/PAM already started.
+set -uo pipefail
+
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=GNOME
+export XDG_SESSION_DESKTOP=gnome
+export XDG_SESSION_CLASS=user
+export GDK_BACKEND=wayland
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM=wayland
+export XDG_MENU_PREFIX=gnome-
+
+if ! compgen -G '/dev/dri/card*' >/dev/null 2>&1; then
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export GALLIUM_DRIVER=llvmpipe
+  export GSK_RENDERER=cairo
+fi
+
+exec /usr/bin/gnome-session
