@@ -28,6 +28,7 @@ file_permissions=(
   ["/usr/local/bin/02os-installed-cleanup"]="0:0:755"
   ["/usr/local/bin/02os-gnome-session"]="0:0:755"
   ["/usr/local/bin/02os-ensure-live-user"]="0:0:755"
+  ["/usr/bin/02"]="0:0:755"
   ["/usr/bin/02agent"]="0:0:755"
   ["/usr/bin/02-agentd"]="0:0:755"
   ["/usr/lib/systemd/user/02-agentd.service"]="0:0:644"

@@ -5,10 +5,10 @@ mod commands;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "02agent",
+    name = "02",
     author = "02_OS Systems Engineering Team",
     version,
-    about = "02 Agent Runtime: Git-aware repository intelligence service for coding agents",
+    about = "02: Git-aware repository intelligence service for coding agents",
     long_about = "02 Agent Runtime provides deterministic repository intelligence (Git + Tree-sitter + Evidence Graph + Invalidation + Context Compiler + MCP) natively in 02_OS."
 )]
 struct Cli {

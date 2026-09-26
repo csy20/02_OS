@@ -32,7 +32,7 @@ The indexing engine (`agent-index`) integrates pre-indexing pattern matching (`a
 Developers can audit their repository at any time:
 
 ```bash
-02agent security
+02 security
 ```
 
 ---
@@ -83,7 +83,7 @@ WantedBy=default.target
 
 ## 4. Socket Security & IPC Isolation
 
-Communications between coding agents, `02agent` CLI, and `02-agentd` take place over a local Unix domain socket:
+Communications between coding agents, `02` CLI, and `02-agentd` take place over a local Unix domain socket:
 
 ```
 Primary:   $XDG_RUNTIME_DIR/02agent.sock
@@ -117,8 +117,8 @@ Developers and security teams can verify the operational integrity of the agent 
 
 ```bash
 # Verify system environment, storage permissions, and live-user state
-02agent doctor
+02 doctor
 
 # Scan repository for credentials or insecure configuration
-02agent security
+02 security
 ```

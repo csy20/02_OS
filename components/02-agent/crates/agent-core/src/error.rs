@@ -25,7 +25,7 @@ pub enum AgentError {
     #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
 
-    #[error("Repository not initialized. Run '02agent init' first.")]
+    #[error("Repository not initialized. Run '02 init' first.")]
     RepositoryNotInitialized,
 
     #[error("Security violation: {0}")]

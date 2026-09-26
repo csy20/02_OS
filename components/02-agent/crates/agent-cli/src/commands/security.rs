@@ -66,7 +66,7 @@ pub fn execute(json_output: bool) -> Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else {
-        println!("02 Agent Runtime: Security Audit (02agent security)");
+        println!("02 Agent Runtime: Security Audit (02 security)");
         println!("==================================================");
         println!("Repository Root: {}", repo_root.display());
         println!(

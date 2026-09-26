@@ -51,7 +51,7 @@ pub fn execute(json_output: bool) -> Result<()> {
             repo_info.root_path.join(".02agent/config.toml").display()
         );
         println!();
-        println!("Next step: run '02agent index' to build the initial repository index.");
+        println!("Next step: run '02 index' to build the initial repository index.");
     }
 
     Ok(())

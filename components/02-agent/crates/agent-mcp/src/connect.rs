@@ -38,8 +38,8 @@ impl AgentConnector {
     pub fn generate_config(_target: &AgentTarget) -> serde_json::Value {
         json!({
             "mcpServers": {
-                "02agent": {
-                    "command": "02agent",
+                "02": {
+                    "command": "02",
                     "args": ["mcp"]
                 }
             }
@@ -71,14 +71,14 @@ impl AgentConnector {
                         .and_then(|s| s.as_object_mut())
                     {
                         servers.insert(
-                            "02agent".to_string(),
-                            json!({ "command": "02agent", "args": ["mcp"] }),
+                            "02".to_string(),
+                            json!({ "command": "02", "args": ["mcp"] }),
                         );
                     } else if let Some(root_obj) = existing_val.as_object_mut() {
                         root_obj.insert(
                             "mcpServers".to_string(),
                             json!({
-                                "02agent": { "command": "02agent", "args": ["mcp"] }
+                                "02": { "command": "02", "args": ["mcp"] }
                             }),
                         );
                     }

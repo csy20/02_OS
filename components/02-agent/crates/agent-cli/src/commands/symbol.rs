@@ -30,7 +30,7 @@ pub fn execute(name: &str, json_output: bool) -> Result<()> {
         println!("==================================================");
         if symbols.is_empty() {
             println!("  Symbol '{}' not found in current index.", name);
-            println!("  Tip: Run '02agent index' if you recently added this symbol.");
+            println!("  Tip: Run '02 index' if you recently added this symbol.");
         } else {
             for (i, sym) in symbols.iter().enumerate() {
                 println!("[{}] {} ({})", i + 1, sym.name, sym.kind);

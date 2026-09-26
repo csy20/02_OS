@@ -18,13 +18,15 @@ The **02 Agent Runtime** is an OS-native repository intelligence service built i
 
 ## Quickstart
 
+The primary command is `02` (with `02agent` available as an alias).
+
 ### 1. Initialize a Repository
 
 Navigate to any Git repository and initialize the 02 Agent index:
 
 ```bash
 cd /path/to/project
-02agent init
+02 init
 ```
 
 This creates an isolated index in `~/.local/share/02-agent/repos/<repo-id>/index.sqlite`.
@@ -32,7 +34,7 @@ This creates an isolated index in `~/.local/share/02-agent/repos/<repo-id>/index
 ### 2. Check Repository Status
 
 ```bash
-02agent status
+02 status
 ```
 
 Example output:
@@ -55,13 +57,13 @@ Example output:
 Index newly added or modified files in milliseconds:
 
 ```bash
-02agent index
+02 index
 ```
 
 To force a complete re-index of all files from scratch:
 
 ```bash
-02agent index --full
+02 index --full
 ```
 
 ---
@@ -71,13 +73,13 @@ To force a complete re-index of all files from scratch:
 Compile the exact evidence package needed for a coding agent to solve a task within a strict token budget:
 
 ```bash
-02agent context "fix refresh-token rotation race" --budget 4000
+02 context "fix refresh-token rotation race" --budget 4000
 ```
 
 For machine-readable JSON output:
 
 ```bash
-02agent context "fix refresh-token rotation race" --json
+02 context "fix refresh-token rotation race" --json
 ```
 
 ---
@@ -87,7 +89,7 @@ For machine-readable JSON output:
 ### Launch Stdio MCP Server
 
 ```bash
-02agent mcp
+02 mcp
 ```
 
 ### Connect Coding Agents
@@ -96,21 +98,21 @@ Generate or automatically install MCP configurations for supported coding agents
 
 ```bash
 # Print configuration for OpenAI Codex
-02agent connect codex
+02 connect codex
 
 # Install configuration directly into Claude Desktop / Claude Code
-02agent connect claude --write
+02 connect claude --write
 
 # Print configuration for OpenCode
-02agent connect opencode
+02 connect opencode
 ```
 
 Generated configuration format:
 ```json
 {
   "mcpServers": {
-    "02agent": {
-      "command": "02agent",
+    "02": {
+      "command": "02",
       "args": ["mcp"]
     }
   }
@@ -123,19 +125,19 @@ Generated configuration format:
 
 ```bash
 # Look up symbol definition
-02agent symbol rotate_refresh_token
+02 symbol rotate_refresh_token
 
 # Inspect call graph and callers/callees
-02agent deps rotate_refresh_token
+02 deps rotate_refresh_token
 
 # Discover test suites exercising a symbol
-02agent tests rotate_refresh_token
+02 tests rotate_refresh_token
 
 # List architectural memories
-02agent memory list
+02 memory list
 
 # Verify freshness of a memory against current Git HEAD
-02agent memory verify mem_archiso_profile
+02 memory verify mem_archiso_profile
 ```
 
 ---
@@ -144,10 +146,10 @@ Generated configuration format:
 
 ```bash
 # Run system privilege, storage, and runtime diagnostics
-02agent doctor
+02 doctor
 
 # Audit repository for exposed secrets or credentials
-02agent security
+02 security
 ```
 
 ---

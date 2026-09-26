@@ -175,8 +175,8 @@ fn test_mcp_protocol_and_tools() {
 
     // 9. Test AgentConnector configuration generator
     let codex_conf = AgentConnector::generate_config(&AgentTarget::Codex);
-    assert_eq!(codex_conf["mcpServers"]["02agent"]["command"], "02agent");
+    assert_eq!(codex_conf["mcpServers"]["02"]["command"], "02");
 
     let connect_out = AgentConnector::connect("claude", false).unwrap();
-    assert!(connect_out.contains("02agent"));
+    assert!(connect_out.contains("\"02\""));
 }

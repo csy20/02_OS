@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "02agent"
+name = "02"
 path = "src/main.rs"
 
 [dependencies]

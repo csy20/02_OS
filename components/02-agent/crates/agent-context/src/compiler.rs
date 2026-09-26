@@ -31,7 +31,7 @@ impl ContextCompiler {
         let db_path = StoragePaths::repo_db_path(repo_id)?;
         if !db_path.exists() {
             return Err(AgentError::General(
-                "Repository is not indexed yet. Run '02agent init' or '02agent index' first."
+                "Repository is not indexed yet. Run '02 init' or '02 index' first."
                     .to_string(),
             ));
         }

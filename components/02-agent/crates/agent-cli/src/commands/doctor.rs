@@ -65,7 +65,7 @@ pub fn execute(json_output: bool) -> Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else {
-        println!("02 Agent Runtime: Diagnostic Report (02agent doctor)");
+        println!("02 Agent Runtime: Diagnostic Report (02 doctor)");
         println!("==================================================");
         println!("System & Environment:");
         println!(
@@ -109,7 +109,7 @@ pub fn execute(json_output: bool) -> Result<()> {
                 if initialized {
                     "Yes (Database ready)"
                 } else {
-                    "No (Run '02agent init')"
+                    "No (Run '02 init')"
                 }
             );
             if initialized {

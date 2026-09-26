@@ -27,18 +27,19 @@ cargo test --manifest-path "${AGENT_DIR}/Cargo.toml"
 echo "=== [02 Agent Runtime] Staging Binaries into airootfs ==="
 mkdir -p "${DEST_DIR}"
 
-cp -f "${AGENT_DIR}/target/release/02agent" "${DEST_DIR}/02agent"
+cp -f "${AGENT_DIR}/target/release/02" "${DEST_DIR}/02"
+ln -sf "02" "${DEST_DIR}/02agent"
 cp -f "${AGENT_DIR}/target/release/02-agentd" "${DEST_DIR}/02-agentd"
 
-chmod 755 "${DEST_DIR}/02agent" "${DEST_DIR}/02-agentd"
+chmod 755 "${DEST_DIR}/02" "${DEST_DIR}/02-agentd"
 
 # Strip debug symbols if strip is present to conserve squashfs space
 if command -v strip >/dev/null 2>&1; then
     echo "Stripping binaries..."
-    strip "${DEST_DIR}/02agent" "${DEST_DIR}/02-agentd" || true
+    strip "${DEST_DIR}/02" "${DEST_DIR}/02-agentd" || true
 fi
 
 echo "Staged binaries:"
-ls -lh "${DEST_DIR}/02agent" "${DEST_DIR}/02-agentd"
+ls -lh "${DEST_DIR}/02" "${DEST_DIR}/02agent" "${DEST_DIR}/02-agentd"
 
 echo "=== [02 Agent Runtime] Build & Staging Complete ==="

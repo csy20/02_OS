@@ -29,7 +29,7 @@ pub fn execute(json_output: bool) -> Result<()> {
                 repo_info.name,
                 repo_info.root_path.display()
             );
-            println!("Status: Not initialized. Run '02agent init' to set up the local index.");
+            println!("Status: Not initialized. Run '02 init' to set up the local index.");
         }
         return Ok(());
     }
@@ -143,7 +143,7 @@ pub fn execute(json_output: bool) -> Result<()> {
             if is_index_fresh {
                 "Fresh (synced with HEAD)".to_string()
             } else {
-                "Stale (changes detected; run '02agent index')".to_string()
+                "Stale (changes detected; run '02 index')".to_string()
             }
         );
         println!(

@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-AGENT_BIN="${REPO_ROOT}/profile/airootfs/usr/bin/02agent"
+AGENT_BIN="${REPO_ROOT}/profile/airootfs/usr/bin/02"
 
 if [[ ! -f "${AGENT_BIN}" ]]; then
     echo "ERROR: ${AGENT_BIN} not found. Running build-agent-runtime.sh first..."

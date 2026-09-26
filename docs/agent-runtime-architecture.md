@@ -12,7 +12,7 @@ The **02 Agent Runtime** transforms **02_OS** into an *agent-native developer op
                          v
              +-----------------------+
              |   02 Agent Runtime    |
-             |  (02agent / 02-agentd)|
+             |   (02 / 02-agentd)    |
              +-----------------------+
                 |        |        |
          symbols|        |deps    |memories
@@ -79,7 +79,7 @@ components/02-agent/
 │   ├── agent-context/    # Context compiler & token budgeting engine
 │   ├── agent-mcp/        # Model Context Protocol server & connect tool
 │   ├── agent-daemon/     # 02-agentd user service & IPC socket listener
-│   └── agent-cli/        # 02agent unified CLI command
+│   └── agent-cli/        # 02 unified CLI command (alias 02agent)
 ├── benchmarks/           # Performance test suite
 └── tests/                # Workspace integration tests
 ```
@@ -159,7 +159,7 @@ components/02-agent/
   - `memory_get`: Retrieve architectural memories by ID or tag.
   - `memory_write`: Record new verified evidence-based memory.
   - `memory_status`: Freshness audit of all repository memories.
-- **Agent Connect**: `02agent connect <agent>` automatically configures Codex, Claude Code, and OpenCode.
+- **Agent Connect**: `02 connect <agent>` automatically configures Codex, Claude Code, and OpenCode.
 
 ### 2.8 `agent-daemon`
 - **Binary**: `02-agentd`, packaged as a systemd user service (`02-agentd.service`).

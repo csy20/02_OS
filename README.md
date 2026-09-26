@@ -45,28 +45,28 @@ Coding Agents (Codex / Claude / OpenCode)
 
 ```bash
 # Initialize repository index
-02agent init
+02 init
 
 # Inspect repository status, git HEAD, and indexed symbols
-02agent status
+02 status
 
 # Incremental re-index of working tree changes (<100ms)
-02agent index
+02 index
 
 # Compile a task-focused evidence package within an 8,000 token budget
-02agent context "fix refresh-token rotation race" --budget 8000
+02 context "fix refresh-token rotation race" --budget 8000
 
 # Launch stdio MCP server for agent integration
-02agent mcp
+02 mcp
 
 # Configure coding agents
-02agent connect claude --write
-02agent connect codex
-02agent connect opencode
+02 connect claude --write
+02 connect codex
+02 connect opencode
 
 # System & security diagnostics
-02agent doctor
-02agent security
+02 doctor
+02 security
 ```
 
 For complete documentation:
@@ -87,7 +87,7 @@ For complete documentation:
 | **Terminal** | GNOME Console (`org.gnome.Console`) |
 | **File Manager** | Nautilus (`org.gnome.Nautilus`) |
 | **Audio / Net** | PipeWire + NetworkManager (no duplicate network stacks) |
-| **Agent Runtime** | `02agent` CLI + `02-agentd` user daemon pre-installed and enabled |
+| **Agent Runtime** | `02` CLI (alias `02agent`) + `02-agentd` user daemon pre-installed and enabled |
 
 Live session user is **`live`** (autologin, password **`live`**). The desktop does **not** run as root. Use that password on the lock screen or for `sudo` commands.
 
@@ -113,7 +113,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 - **Build-Time Schema Compilation**: GLib schemas and dconf databases are precompiled during ISO build, saving boot time and RAM overlayfs space.
 - **Clean User Management**: System users (`greeter`, `polkitd`, `dbus`) preserved via Arch packages and `sysusers.d`.
 - **Deduplicated Skeleton**: Unified dotfiles in `/etc/skel` as the single source of truth.
-- **Agent Native Pre-Staging**: `02agent` and `02-agentd` binaries compiled in Rust, stripped, and integrated with systemd user session.
+- **Agent Native Pre-Staging**: `02` (alias `02agent`) and `02-agentd` binaries compiled in Rust, stripped, and integrated with systemd user session.
 - **zstd** squashfs + initramfs (faster decompression and boot).
 - **zram** swap with tuned swappiness.
 
@@ -138,7 +138,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 │       │   ├── agent-context/ # Multi-signal context compiler & budgeter
 │       │   ├── agent-mcp/     # Model Context Protocol (2024-11-05) server
 │       │   ├── agent-daemon/  # 02-agentd systemd user daemon & watcher
-│       │   └── agent-cli/     # 02agent CLI tool
+│       │   └── agent-cli/     # 02 CLI tool (alias 02agent)
 │       └── benchmarks/        # Automated performance benchmark suite
 ├── docs/
 │   ├── agent-runtime.md       # User guide & command reference
@@ -155,7 +155,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 │       ├── etc/systemd/user/  # Enabled user services (02-agentd.service)
 │       ├── etc/sysusers.d/    # Declarative live user creation
 │       ├── root/              # Build-time customization script
-│       ├── usr/bin/           # Pre-staged 02agent and 02-agentd binaries
+│       ├── usr/bin/           # Pre-staged 02 (with 02agent symlink) & 02-agentd
 │       ├── usr/lib/systemd/user/ # 02-agentd systemd service definition
 │       └── usr/share/icons/02-OS/ # Glassmorphic vector icon theme
 ├── scripts/
