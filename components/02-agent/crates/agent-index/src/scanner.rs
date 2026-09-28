@@ -13,7 +13,7 @@ pub struct RepoScanner {
     config: RepoConfig,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScannedFile {
     pub file: IndexedFile,
     pub absolute_path: PathBuf,

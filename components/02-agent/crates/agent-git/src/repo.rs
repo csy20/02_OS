@@ -315,6 +315,32 @@ impl GitRepo {
 
         Ok(file_hunks.into_inner())
     }
+
+    /// Paths added, modified, or deleted by one commit compared with its first parent.
+    pub fn paths_touched_by_commit(&self, commit_id: &str) -> Result<Vec<String>> {
+        let oid = git2::Oid::from_str(commit_id)
+            .map_err(|e| AgentError::Git(format!("Invalid commit id: {}", e)))?;
+        let commit = self
+            .repo
+            .find_commit(oid)
+            .map_err(|e| AgentError::Git(format!("Commit not found: {}", e)))?;
+        let new_tree = commit
+            .tree()
+            .map_err(|e| AgentError::Git(format!("Commit tree missing: {}", e)))?;
+        let old_tree = commit.parent(0).ok().and_then(|parent| parent.tree().ok());
+        let diff = self
+            .repo
+            .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)
+            .map_err(|e| AgentError::Git(format!("Commit diff failed: {}", e)))?;
+
+        let mut paths = Vec::new();
+        for delta in diff.deltas() {
+            if let Some(path) = delta.new_file().path().or_else(|| delta.old_file().path()) {
+                paths.push(path.to_string_lossy().to_string());
+            }
+        }
+        Ok(paths)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,5 +1,5 @@
 use crate::scanner::ScannedFile;
-use crate::schema::{CURRENT_SCHEMA_VERSION, INIT_SCHEMA_SQL};
+use crate::schema::{CURRENT_SCHEMA_VERSION, SCHEMA_V1_SQL, SCHEMA_V2_SQL};
 use crate::search::{FtsSearcher, SearchResult};
 use agent_core::{
     error::AgentError,
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub struct IndexDatabase {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,8 +83,10 @@ impl IndexDatabase {
             .transaction()
             .map_err(|e| AgentError::Database(format!("Failed to start transaction: {}", e)))?;
 
-        tx.execute_batch(INIT_SCHEMA_SQL)
+        tx.execute_batch(SCHEMA_V1_SQL)
             .map_err(|e| AgentError::Database(format!("Schema initialization failed: {}", e)))?;
+        tx.execute_batch(SCHEMA_V2_SQL)
+            .map_err(|e| AgentError::Database(format!("Schema v2 initialization failed: {}", e)))?;
 
         let version: Option<i32> = tx
             .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
@@ -92,18 +94,36 @@ impl IndexDatabase {
             })
             .ok();
 
-        if version.is_none() {
-            tx.execute(
-                "INSERT INTO schema_version (version) VALUES (?1)",
-                params![CURRENT_SCHEMA_VERSION],
-            )
-            .map_err(|e| AgentError::Database(format!("Version update failed: {}", e)))?;
+        match version {
+            None => {
+                tx.execute(
+                    "INSERT INTO schema_version (version) VALUES (?1)",
+                    params![CURRENT_SCHEMA_VERSION],
+                )
+                .map_err(|e| AgentError::Database(format!("Version update failed: {}", e)))?;
+            }
+            Some(found) if found < CURRENT_SCHEMA_VERSION => {
+                tx.execute(
+                    "UPDATE schema_version SET version = ?1",
+                    params![CURRENT_SCHEMA_VERSION],
+                )
+                .map_err(|e| AgentError::Database(format!("Version update failed: {}", e)))?;
+            }
+            Some(_) => {}
         }
 
         tx.commit()
             .map_err(|e| AgentError::Database(format!("Failed to commit schema: {}", e)))?;
 
         Ok(())
+    }
+
+    pub fn schema_version(&self) -> Result<i32> {
+        self.conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| AgentError::Database(format!("Schema version read failed: {}", e)))
     }
 
     /// Record or update repository metadata.
