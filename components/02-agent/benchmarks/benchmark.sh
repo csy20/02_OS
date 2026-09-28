@@ -84,6 +84,30 @@ END_NS=$(date +%s%N)
 DIFF_MS=$(( (END_NS - START_NS) / 1000000 ))
 echo "${DIFF_MS} ms"
 
+# Benchmark 9: Dataset ingest
+echo -n "9. Add (worktree,docs) Latency: "
+START_NS=$(date +%s%N)
+"${AGENT_BIN}" add --source worktree,docs >/dev/null
+END_NS=$(date +%s%N)
+DIFF_MS=$(( (END_NS - START_NS) / 1000000 ))
+echo "${DIFF_MS} ms"
+
+# Benchmark 10: Deterministic cognify
+echo -n "10. Cognify Latency: "
+START_NS=$(date +%s%N)
+"${AGENT_BIN}" cognify >/dev/null
+END_NS=$(date +%s%N)
+DIFF_MS=$(( (END_NS - START_NS) / 1000000 ))
+echo "${DIFF_MS} ms"
+
+# Benchmark 11: Graph export
+echo -n "11. Graph Export (JSON) Latency: "
+START_NS=$(date +%s%N)
+"${AGENT_BIN}" graph export --format json >/dev/null
+END_NS=$(date +%s%N)
+DIFF_MS=$(( (END_NS - START_NS) / 1000000 ))
+echo "${DIFF_MS} ms"
+
 echo "============================================================"
 echo " All Benchmarks Completed Successfully."
 echo "============================================================"

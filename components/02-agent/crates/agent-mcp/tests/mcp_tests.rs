@@ -95,9 +95,12 @@ fn test_mcp_protocol_and_tools() {
         .as_array()
         .unwrap()
         .clone();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 15);
     assert!(tools.iter().any(|t| t["name"] == "repository_context"));
     assert!(tools.iter().any(|t| t["name"] == "repository_status"));
+    assert!(tools.iter().any(|t| t["name"] == "add"));
+    assert!(tools.iter().any(|t| t["name"] == "cognify"));
+    assert!(tools.iter().any(|t| t["name"] == "graph_export"));
 
     // 6. Test 'tools/call' -> repository_status
     let status_req = JsonRpcRequest {

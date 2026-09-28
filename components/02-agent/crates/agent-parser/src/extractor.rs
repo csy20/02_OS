@@ -849,7 +849,7 @@ impl CodeExtractor {
     }
 
     /// Point test references at the code under test instead of the test function itself.
-    fn retarget_test_references(references: &mut Vec<SymbolReference>) {
+    fn retarget_test_references(references: &mut [SymbolReference]) {
         let calls: Vec<SymbolReference> = references
             .iter()
             .filter(|r| {

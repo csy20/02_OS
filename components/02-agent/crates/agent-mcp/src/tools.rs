@@ -14,6 +14,44 @@ use std::path::Path;
 pub fn list_tools() -> Vec<ToolDefinition> {
     let mut tools = vec![
         ToolDefinition {
+            name: "add".to_string(),
+            description: "Ingest working tree, docs, git history, a session note, or pasted text into a dataset.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "Comma-separated sources: worktree, docs, history, session, text. Default: worktree,docs" },
+                    "text": { "type": "string", "description": "Required for session and text sources" },
+                    "dataset": { "type": "string", "description": "Dataset name" },
+                    "full": { "type": "boolean", "description": "Re-read every file" }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "cognify".to_string(),
+            description: "Deterministically build symbol, chunk, and commit edges for a dataset.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "dataset": { "type": "string", "description": "Dataset name" },
+                    "full": { "type": "boolean", "description": "Re-extract every source file" }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "graph_export".to_string(),
+            description: "Export the knowledge graph as JSON, DOT, or Mermaid.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "format": { "type": "string", "description": "json, dot, or mermaid" },
+                    "dataset": { "type": "string", "description": "Dataset name" }
+                },
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
             name: "repository_status".to_string(),
             description: "Get current Git repository status, branch, HEAD commit, clean/dirty state, and index stats.".to_string(),
             input_schema: json!({
@@ -205,6 +243,10 @@ pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallRes
         Ok(d) => d,
         Err(e) => return ToolCallResult::error(format!("Database error: {}", e)),
     };
+
+    if matches!(name, "add" | "cognify" | "graph_export") {
+        return crate::graph_tools::call(repo_root, name, arguments);
+    }
 
     match name {
         "repository_status" => {

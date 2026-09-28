@@ -33,6 +33,42 @@ enum Commands {
         full: bool,
     },
 
+    #[command(
+        about = "Ingest sources into a dataset (working tree, docs, history, session, text)"
+    )]
+    Add {
+        #[arg(
+            long,
+            default_value = "worktree,docs",
+            help = "Comma-separated sources: worktree, docs, history, session, text"
+        )]
+        source: String,
+
+        #[arg(long, help = "Text for session or pasted-text sources")]
+        text: Option<String>,
+
+        #[arg(long, help = "Dataset name (default: default)")]
+        dataset: Option<String>,
+
+        #[arg(long, help = "Re-read every file instead of the incremental catalog")]
+        full: bool,
+    },
+
+    #[command(about = "Build a deterministic symbol, chunk, and git graph for a dataset")]
+    Cognify {
+        #[arg(long, help = "Dataset name (default: default)")]
+        dataset: Option<String>,
+
+        #[arg(long, help = "Re-extract every source file")]
+        full: bool,
+    },
+
+    #[command(about = "Inspect the repository knowledge graph")]
+    Graph {
+        #[command(subcommand)]
+        action: GraphCommands,
+    },
+
     #[command(about = "Search repository code and documentation using BM25 full-text search")]
     Search {
         #[arg(help = "Search query string")]
@@ -110,6 +146,21 @@ enum Commands {
 }
 
 #[derive(Subcommand, Debug)]
+enum GraphCommands {
+    #[command(about = "Export the knowledge graph as JSON, DOT, or Mermaid")]
+    Export {
+        #[arg(long, default_value = "json", help = "json, dot, or mermaid")]
+        format: String,
+
+        #[arg(long, help = "Dataset name (default: default)")]
+        dataset: Option<String>,
+
+        #[arg(short, long, help = "Write the document to this path")]
+        output: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum MemoryCommands {
     #[command(about = "List all verified memories")]
     List,
@@ -126,6 +177,20 @@ fn main() -> ExitCode {
         Commands::Init => commands::init::execute(cli.json),
         Commands::Status => commands::status::execute(cli.json),
         Commands::Index { full } => commands::index::execute(full, cli.json),
+        Commands::Add {
+            source,
+            text,
+            dataset,
+            full,
+        } => commands::add::execute(&source, text, dataset, full, cli.json),
+        Commands::Cognify { dataset, full } => commands::cognify::execute(dataset, full, cli.json),
+        Commands::Graph { action } => match action {
+            GraphCommands::Export {
+                format,
+                dataset,
+                output,
+            } => commands::graph::execute_export(&format, dataset, output, cli.json),
+        },
         Commands::Search { query, limit } => commands::search::execute(&query, limit, cli.json),
         Commands::Doctor => commands::doctor::execute(cli.json),
         Commands::Security => commands::security::execute(cli.json),

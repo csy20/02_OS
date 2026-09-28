@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 agent-core = { path = "../agent-core" }
+serde_json.workspace = true
 agent-git = { path = "../agent-git" }
 agent-parser = { path = "../agent-parser" }
 serde.workspace = true

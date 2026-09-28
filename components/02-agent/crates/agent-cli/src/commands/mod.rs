@@ -1,7 +1,10 @@
+pub mod add;
+pub mod cognify;
 pub mod connect;
 pub mod context;
 pub mod deps;
 pub mod doctor;
+pub mod graph;
 pub mod index;
 pub mod init;
 pub mod mcp;
