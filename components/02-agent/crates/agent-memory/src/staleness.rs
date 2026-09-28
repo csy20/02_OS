@@ -44,12 +44,9 @@ impl StalenessEngine {
             let full_file_path = root.join(&file_diff.file_path);
 
             if file_diff.is_deleted || !full_file_path.exists() {
-                // All symbols in deleted file are marked changed/removed
-                let old_syms = db.find_symbols_by_name(repo_id, "")?; // or query by file
+                let old_syms = db.find_symbols_by_file(repo_id, &file_diff.file_path)?;
                 for s in old_syms {
-                    if s.file_path == file_diff.file_path {
-                        changed_symbols.insert(s.name);
-                    }
+                    changed_symbols.insert(s.name);
                 }
                 continue;
             }
@@ -120,6 +117,11 @@ impl StalenessEngine {
                         has_degraded_evidence = true;
                     }
                 }
+            }
+
+            if mem.status == MemoryStatus::Invalidated {
+                stale_count += 1;
+                continue;
             }
 
             let old_status = mem.status;

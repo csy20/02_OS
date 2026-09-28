@@ -95,9 +95,9 @@ This release introduces the **02 Agent Runtime** — an operating-system-level r
   - Centered floating Dash-to-Dock with pinned terminal and installer.
   - Custom handcrafted **02-OS Glassmorphic Vector Icon Theme** (70+ scalable SVGs).
   - Precompiled GLib schemas and dconf database for faster boot and minimal RAM footprint.
-- **Calamares Installer**:
-  - Live session user \`live\` (password \`live\`) with unprivileged desktop session.
-  - Graphical and terminal-based installation support.
+- **archinstall**:
+  - Live session user \`live\` (password \`live\`) with an unprivileged desktop session.
+  - Install from GNOME Console via the Install 02_OS launcher, or run \`sudo archinstall\`.
 - **Modern Linux Audio & Networking**:
   - PipeWire audio stack with automatic live unmuting.
   - Clean NetworkManager stack.

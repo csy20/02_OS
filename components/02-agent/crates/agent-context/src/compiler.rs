@@ -280,10 +280,16 @@ impl ContextCompiler {
         budget_manager.consume(base_tokens.min(token_budget / 3));
 
         let candidate_files_count = sorted_files.len();
+        // Read and budget only the files that can be returned.
+        sorted_files.truncate(15);
         let mut returned_files = Vec::new();
         let mut total_candidate_tokens = base_tokens;
 
         for (path, score, reasons) in sorted_files {
+            if budget_manager.remaining() <= 100 {
+                break;
+            }
+
             let full_path = root.join(&path);
             let content_opt = fs::read_to_string(&full_path).ok();
 
@@ -328,8 +334,6 @@ impl ContextCompiler {
             }
         }
 
-        // Limit returned files to top 15 to prevent clutter
-        returned_files.truncate(15);
         candidate_symbols.truncate(12);
         candidate_deps.truncate(10);
         candidate_tests.truncate(8);

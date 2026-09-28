@@ -15,6 +15,7 @@ dependencies = [
  "agent-parser",
  "chrono",
  "clap",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

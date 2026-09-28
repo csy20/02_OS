@@ -15,15 +15,17 @@ pub struct CodeExtractor;
 
 impl CodeExtractor {
     pub fn extract(file_path: &str, content: &str, language: Language) -> Result<ExtractionResult> {
-        match language {
-            Language::Rust => Self::extract_rust(file_path, content),
-            Language::Python => Self::extract_python(file_path, content),
-            Language::C | Language::Cpp => Self::extract_c_cpp(file_path, content),
-            Language::Bash => Self::extract_bash(file_path, content),
-            Language::JavaScript | Language::TypeScript => Self::extract_js_ts(file_path, content),
-            Language::Dart => Self::extract_dart(file_path, content),
-            _ => Self::extract_fallback(file_path, content),
-        }
+        let mut result = match language {
+            Language::Rust => Self::extract_rust(file_path, content)?,
+            Language::Python => Self::extract_python(file_path, content)?,
+            Language::C | Language::Cpp => Self::extract_c_cpp(file_path, content)?,
+            Language::Bash => Self::extract_bash(file_path, content)?,
+            Language::JavaScript | Language::TypeScript => Self::extract_js_ts(file_path, content)?,
+            Language::Dart => Self::extract_dart(file_path, content)?,
+            _ => Self::extract_fallback(file_path, content)?,
+        };
+        Self::retarget_test_references(&mut result.references);
+        Ok(result)
     }
 
     fn symbol_fingerprint(text: &str) -> String {
@@ -845,4 +847,107 @@ impl CodeExtractor {
             references,
         })
     }
+
+    /// Point test references at the code under test instead of the test function itself.
+    fn retarget_test_references(references: &mut Vec<SymbolReference>) {
+        let calls: Vec<SymbolReference> = references
+            .iter()
+            .filter(|r| {
+                r.kind == ReferenceKind::Calls
+                    && r.source_symbol_name
+                        .as_deref()
+                        .is_some_and(|s| s.starts_with("test_"))
+                    && !is_test_helper(&r.target_name)
+            })
+            .cloned()
+            .collect();
+
+        for reference in references.iter_mut() {
+            if reference.kind != ReferenceKind::Tests {
+                continue;
+            }
+            let Some(source) = reference.source_symbol_name.clone() else {
+                continue;
+            };
+            if reference.target_name != source {
+                continue;
+            }
+            let own_calls: Vec<&SymbolReference> = calls
+                .iter()
+                .filter(|call| {
+                    call.source_file == reference.source_file
+                        && call.source_symbol_name.as_deref() == Some(source.as_str())
+                })
+                .collect();
+            if let Some(target) = preferred_test_target(&source, &own_calls) {
+                if let Some(call) = own_calls.iter().find(|call| call.target_name == target) {
+                    reference.line_number = call.line_number;
+                }
+                reference.target_name = target;
+            }
+        }
+    }
+}
+
+fn preferred_test_target(test_name: &str, calls: &[&SymbolReference]) -> Option<String> {
+    let stripped = test_name
+        .strip_prefix("test_")
+        .filter(|name| !name.is_empty())
+        .unwrap_or(test_name);
+    let targets: Vec<&str> = calls
+        .iter()
+        .map(|call| call.target_name.as_str())
+        .filter(|target| !is_test_helper(target))
+        .collect();
+
+    if let Some(exact) = targets.iter().copied().find(|target| *target == stripped) {
+        return Some(exact.to_string());
+    }
+    if let Some(related) = targets.iter().copied().find(|target| {
+        target.starts_with(stripped) || (stripped.starts_with(*target) && target.len() >= 4)
+    }) {
+        return Some(related.to_string());
+    }
+    if !stripped.is_empty() && stripped != test_name {
+        return Some(stripped.to_string());
+    }
+    targets.first().map(|target| (*target).to_string())
+}
+
+fn is_test_helper(name: &str) -> bool {
+    matches!(
+        name,
+        "assert"
+            | "assert_eq"
+            | "assert_ne"
+            | "assert_matches"
+            | "debug_assert"
+            | "debug_assert_eq"
+            | "unwrap"
+            | "expect"
+            | "panic"
+            | "todo"
+            | "unimplemented"
+            | "dbg"
+            | "println"
+            | "print"
+            | "eprintln"
+            | "format"
+            | "write"
+            | "writeln"
+            | "vec"
+            | "Some"
+            | "None"
+            | "Ok"
+            | "Err"
+            | "clone"
+            | "to_string"
+            | "to_owned"
+            | "new"
+            | "default"
+            | "String"
+            | "matches"
+            | "pytest"
+            | "raises"
+    ) || name.starts_with("assert")
 }

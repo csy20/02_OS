@@ -3,6 +3,19 @@ use git2::{Repository, StatusOptions};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+fn is_tracked_change(status: git2::Status) -> bool {
+    status.is_wt_modified()
+        || status.is_wt_deleted()
+        || status.is_wt_renamed()
+        || status.is_wt_typechange()
+        || status.is_index_modified()
+        || status.is_index_new()
+        || status.is_index_deleted()
+        || status.is_index_renamed()
+        || status.is_index_typechange()
+        || status.is_conflicted()
+}
+
 pub struct GitRepo {
     repo: Repository,
     root: PathBuf,
@@ -74,6 +87,7 @@ impl GitRepo {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true);
         opts.renames_head_to_index(true);
+        opts.renames_index_to_workdir(true);
 
         let statuses = self
             .repo
@@ -87,8 +101,7 @@ impl GitRepo {
             let status = entry.status();
             if status.is_wt_new() {
                 untracked += 1;
-            } else if status.is_wt_modified() || status.is_index_modified() || status.is_index_new()
-            {
+            } else if is_tracked_change(status) {
                 modified += 1;
             }
         }
@@ -226,6 +239,8 @@ impl GitRepo {
     pub fn get_diff_files(&self) -> Result<Vec<String>> {
         let mut opts = StatusOptions::new();
         opts.include_untracked(false);
+        opts.renames_head_to_index(true);
+        opts.renames_index_to_workdir(true);
 
         let statuses = self
             .repo
@@ -235,11 +250,7 @@ impl GitRepo {
         let mut diff_files = Vec::new();
         for entry in statuses.iter() {
             let status = entry.status();
-            if status.is_wt_modified()
-                || status.is_index_modified()
-                || status.is_index_new()
-                || status.is_index_deleted()
-            {
+            if is_tracked_change(status) {
                 if let Some(p) = entry.path() {
                     diff_files.push(p.to_string());
                 }

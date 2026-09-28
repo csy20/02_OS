@@ -175,3 +175,87 @@ fn test_context_compiler_full_pipeline() {
     assert!(md.contains("validate_session"));
     assert!(md.contains("Refresh tokens are strictly single-use"));
 }
+
+#[test]
+fn test_context_budget_ignores_files_past_the_return_cap() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    let sig = git2::Signature::now("Engineer", "dev@02os.org").unwrap();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    let mut index = repo.index().unwrap();
+    for n in 0..20 {
+        let rel = format!("src/widget_{n}.rs");
+        let mut body = format!("pub fn widget_{n}() {{\n");
+        for line in 0..60 {
+            body.push_str(&format!(
+                "    let value_{line} = \"widget token budget padding {n}\";\n"
+            ));
+        }
+        body.push_str("}\n");
+        fs::write(root.join(&rel), body).unwrap();
+        index.add_path(std::path::Path::new(&rel)).unwrap();
+    }
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "widgets", &tree, &[])
+        .unwrap();
+
+    let repo_id = RepoId::from_path(root);
+    let db_path = agent_core::paths::StoragePaths::repo_db_path(&repo_id).unwrap();
+    let mut db = IndexDatabase::open(&db_path).unwrap();
+    let repo_info = RepoInfo {
+        id: repo_id.clone(),
+        name: "budget_repo".to_string(),
+        root_path: root.to_path_buf(),
+        head_commit: Some("abc".into()),
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    };
+    db.update_repo_info(&repo_info).unwrap();
+    let scanned = RepoScanner::new(root, RepoConfig::default()).scan();
+    db.save_scanned_files(&repo_id, &scanned).unwrap();
+
+    let mut symbols = Vec::new();
+    let mut references = Vec::new();
+    for item in &scanned {
+        if let Some(text) = &item.content {
+            if let Ok(extracted) = agent_parser::CodeExtractor::extract(
+                &item.file.relative_path,
+                text,
+                item.file.language,
+            ) {
+                symbols.extend(extracted.symbols);
+                references.extend(extracted.references);
+            }
+        }
+    }
+    db.save_symbols_and_references(&repo_id, &symbols, &references)
+        .unwrap();
+
+    let package = ContextCompiler::compile(root, "widget", 100_000).unwrap();
+    assert!(package.budget.candidate_files > 15);
+    assert!(package.relevant_files.len() <= 15);
+    assert_eq!(package.budget.returned_files, package.relevant_files.len());
+
+    let snippet_tokens: usize = package
+        .relevant_files
+        .iter()
+        .map(|file| {
+            file.snippet
+                .as_deref()
+                .map(|text| text.len().div_ceil(4))
+                .unwrap_or(0)
+        })
+        .sum();
+    assert!(
+        package.budget.returned_tokens <= snippet_tokens + 2000,
+        "returned_tokens {} charged more than retained snippets {}",
+        package.budget.returned_tokens,
+        snippet_tokens
+    );
+}

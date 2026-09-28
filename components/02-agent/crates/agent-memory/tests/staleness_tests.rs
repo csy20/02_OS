@@ -118,12 +118,65 @@ fn test_staleness_engine_detection() {
     assert_eq!(updated_mem.status, MemoryStatus::Degraded);
     assert_eq!(updated_mem.confidence, 0.70);
 
-    // 4. Delete file: memory should become Stale
+    // 4. Delete file: memory should become Stale and the removed symbol is detected
     fs::remove_file(&auth_file).unwrap();
     let report_deleted = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert!(report_deleted
+        .changed_symbols
+        .contains(&"rotate_refresh_token".to_string()));
     assert_eq!(report_deleted.stale_count, 1);
 
     let stale_mem = store.get("mem_rotate").unwrap().unwrap();
     assert_eq!(stale_mem.status, MemoryStatus::Stale);
     assert_eq!(stale_mem.confidence, 0.0);
+}
+
+#[test]
+fn test_invalidated_memory_is_not_revived() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    let sig = git2::Signature::now("Tester", "test@02os.org").unwrap();
+
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/auth.rs"), "pub fn rotate() { }\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("src/auth.rs")).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let commit_id = repo
+        .commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+        .unwrap();
+
+    let repo_id = RepoId::from_path(root);
+    let db = IndexDatabase::open_in_memory().unwrap();
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    let mem = EvidenceMemory {
+        id: "mem_old_rule".to_string(),
+        claim: "This rule was repealed".to_string(),
+        kind: MemoryKind::ArchitecturalFact,
+        evidence: vec![EvidenceItem {
+            file: "src/auth.rs".to_string(),
+            symbols: vec!["rotate".to_string()],
+            commit: commit_id.to_string(),
+            fingerprint: None,
+        }],
+        valid_at: commit_id.to_string(),
+        confidence: 0.25,
+        status: MemoryStatus::Invalidated,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    store.save(&mem).unwrap();
+
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert!(report.affected_memories.is_empty());
+    assert_eq!(report.stale_count, 1);
+    assert_eq!(report.fresh_count, 0);
+
+    let stored = store.get("mem_old_rule").unwrap().unwrap();
+    assert_eq!(stored.status, MemoryStatus::Invalidated);
+    assert_eq!(stored.confidence, 0.25);
 }

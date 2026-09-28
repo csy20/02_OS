@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn list_tools() -> Vec<ToolDefinition> {
-    vec![
+    let mut tools = vec![
         ToolDefinition {
             name: "repository_status".to_string(),
             description: "Get current Git repository status, branch, HEAD commit, clean/dirty state, and index stats.".to_string(),
@@ -156,10 +156,35 @@ pub fn list_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
-    ]
+    ];
+
+    for tool in &mut tools {
+        if let Some(props) = tool
+            .input_schema
+            .get_mut("properties")
+            .and_then(|p| p.as_object_mut())
+        {
+            props.insert(
+                "repo_path".to_string(),
+                json!({
+                    "type": "string",
+                    "description": "Optional absolute path of the Git repository. When omitted, the daemon uses the MCP session workspace or the only watched repository."
+                }),
+            );
+        }
+    }
+
+    tools
 }
 
 pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallResult {
+    let override_root = arguments
+        .get("repo_path")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from);
+    let repo_root = override_root.as_deref().unwrap_or(repo_root);
+
     let git_repo = match GitRepo::open(repo_root) {
         Ok(r) => r,
         Err(e) => return ToolCallResult::error(format!("Git error: {}", e)),

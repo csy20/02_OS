@@ -81,3 +81,47 @@ fn test_repo_watcher_state() {
     // Cleanup
     watcher.remove(&dummy_repo2).unwrap();
 }
+
+#[test]
+fn test_resolve_mcp_repo_path() {
+    use agent_daemon::resolve_mcp_repo_path;
+    use serde_json::json;
+    use std::path::{Path, PathBuf};
+
+    let default_dir = Path::new("/default");
+    let mut session = None;
+
+    let init = json!({
+        "method": "initialize",
+        "params": { "rootUri": "file:///tmp/my%20repo" }
+    });
+    let path = resolve_mcp_repo_path(&init, &mut session, &[], default_dir);
+    assert_eq!(path, PathBuf::from("/tmp/my repo"));
+
+    let call = json!({
+        "method": "tools/call",
+        "params": { "name": "repository_status", "arguments": {} }
+    });
+    let path = resolve_mcp_repo_path(&call, &mut session, &[], default_dir);
+    assert_eq!(path, PathBuf::from("/tmp/my repo"));
+
+    let explicit = json!({
+        "method": "tools/call",
+        "params": {
+            "name": "repository_status",
+            "arguments": { "path": "/work/proj" }
+        }
+    });
+    let path = resolve_mcp_repo_path(&explicit, &mut session, &[], default_dir);
+    assert_eq!(path, PathBuf::from("/work/proj"));
+
+    session = None;
+    let watched = vec![PathBuf::from("/only/repo")];
+    let path = resolve_mcp_repo_path(&call, &mut session, &watched, default_dir);
+    assert_eq!(path, PathBuf::from("/only/repo"));
+
+    session = None;
+    let watched = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+    let path = resolve_mcp_repo_path(&call, &mut session, &watched, default_dir);
+    assert_eq!(path, default_dir);
+}

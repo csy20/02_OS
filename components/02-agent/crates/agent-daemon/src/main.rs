@@ -1,5 +1,5 @@
 use agent_core::Result;
-use agent_daemon::{DaemonSocket, RepoWatcher};
+use agent_daemon::{resolve_mcp_repo_path, DaemonSocket, RepoWatcher};
 use agent_mcp::McpServer;
 use clap::Parser;
 use serde_json::json;
@@ -117,6 +117,7 @@ fn main() -> Result<()> {
                         });
                         let mut writer = stream;
                         let mut line = String::new();
+                        let mut session_repo = None;
 
                         while let Ok(n) = reader.read_line(&mut line) {
                             if n == 0 {
@@ -178,10 +179,13 @@ fn main() -> Result<()> {
                                 }
                                 _ => {
                                     // Standard MCP JSON-RPC delegation
-                                    let repo_path = req_val["params"]["repo_path"]
-                                        .as_str()
-                                        .map(PathBuf::from)
-                                        .unwrap_or_else(|| default_dir.clone());
+                                    let watched = watcher_conn.list();
+                                    let repo_path = resolve_mcp_repo_path(
+                                        &req_val,
+                                        &mut session_repo,
+                                        &watched,
+                                        &default_dir,
+                                    );
 
                                     let server = McpServer::new(repo_path);
                                     if let Ok(rpc_req) = serde_json::from_value(req_val) {
