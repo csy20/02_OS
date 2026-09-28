@@ -35,10 +35,15 @@ fn test_rust_parsing() {
         .references
         .iter()
         .any(|r| r.target_name == "verify_session" && r.kind == ReferenceKind::Calls));
+    assert!(res.references.iter().any(|r| {
+        r.kind == ReferenceKind::Tests
+            && r.source_symbol_name.as_deref() == Some("test_rotate")
+            && r.target_name == "rotate_refresh_token"
+    }));
     assert!(res
         .references
         .iter()
-        .any(|r| r.target_name == "test_rotate" && r.kind == ReferenceKind::Tests));
+        .all(|r| !(r.kind == ReferenceKind::Tests && r.target_name == "test_rotate")));
 }
 
 #[test]

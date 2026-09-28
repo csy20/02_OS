@@ -159,7 +159,7 @@ components/02-agent/
   - `memory_get`: Retrieve architectural memories by ID or tag.
   - `memory_write`: Record new verified evidence-based memory.
   - `memory_status`: Freshness audit of all repository memories.
-- **Agent Connect**: `02 connect <agent>` automatically configures Codex, Claude Code, and OpenCode.
+- **Agent Connect**: `02 connect <agent>` configures Codex, Claude Code, OpenCode, Cursor, Gemini CLI, and Zed.
 
 ### 2.8 `agent-daemon`
 - **Binary**: `02-agentd`, packaged as a systemd user service (`02-agentd.service`).

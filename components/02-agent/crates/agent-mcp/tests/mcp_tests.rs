@@ -180,3 +180,36 @@ fn test_mcp_protocol_and_tools() {
     let connect_out = AgentConnector::connect("claude", false).unwrap();
     assert!(connect_out.contains("\"02\""));
 }
+
+#[test]
+fn test_connect_targets_and_repo_path_schema() {
+    use agent_core::paths::StoragePaths;
+
+    let home = StoragePaths::home_dir().unwrap();
+    assert_eq!(
+        AgentTarget::parse("cursor").default_config_path().unwrap(),
+        home.join(".cursor/mcp.json")
+    );
+    assert_eq!(
+        AgentTarget::parse("gemini").default_config_path().unwrap(),
+        home.join(".gemini/antigravity-cli/mcp_config.json")
+    );
+    assert_eq!(
+        AgentTarget::parse("zed").default_config_path().unwrap(),
+        home.join(".config/zed/settings.json")
+    );
+
+    let zed = AgentConnector::generate_config(&AgentTarget::Zed);
+    assert_eq!(zed["context_servers"]["02"]["command"], "02");
+    assert_eq!(zed["context_servers"]["02"]["source"], "custom");
+
+    let cursor = AgentConnector::connect("cursor", false).unwrap();
+    assert!(cursor.contains("mcpServers"));
+    let gemini = AgentConnector::connect("gemini", false).unwrap();
+    assert!(gemini.contains("mcpServers"));
+
+    let tools = agent_mcp::list_tools();
+    assert!(tools
+        .iter()
+        .all(|tool| { tool.input_schema["properties"]["repo_path"]["type"] == "string" }));
+}

@@ -63,6 +63,9 @@ Coding Agents (Codex / Claude / OpenCode)
 02 connect claude --write
 02 connect codex
 02 connect opencode
+02 connect cursor --write
+02 connect gemini --write
+02 connect zed --write
 
 # System & security diagnostics
 02 doctor

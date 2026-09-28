@@ -121,6 +121,31 @@ impl Language {
         }
     }
 
+    /// Parse a persisted language name (`"rust"`, `"python"`, …).
+    /// Falls back to extension matching so either form round-trips.
+    pub fn from_name(name: &str) -> Self {
+        match name.to_lowercase().as_str() {
+            "rust" => Self::Rust,
+            "python" => Self::Python,
+            "typescript" => Self::TypeScript,
+            "javascript" => Self::JavaScript,
+            "c" => Self::C,
+            "cpp" => Self::Cpp,
+            "bash" => Self::Bash,
+            "dart" => Self::Dart,
+            "go" => Self::Go,
+            "html" => Self::Html,
+            "css" => Self::Css,
+            "json" => Self::Json,
+            "toml" => Self::Toml,
+            "yaml" => Self::Yaml,
+            "markdown" => Self::Markdown,
+            "sql" => Self::Sql,
+            "unknown" => Self::Unknown,
+            _ => Self::from_extension(name),
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Rust => "rust",

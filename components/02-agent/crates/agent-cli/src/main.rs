@@ -89,10 +89,10 @@ enum Commands {
     Mcp,
 
     #[command(
-        about = "Generate or configure MCP connection for coding agents (codex, claude, opencode)"
+        about = "Generate or configure MCP connection for coding agents (codex, claude, opencode, cursor, gemini, zed)"
     )]
     Connect {
-        #[arg(help = "Target coding agent (codex, claude, opencode)")]
+        #[arg(help = "Target coding agent (codex, claude, opencode, cursor, gemini, zed)")]
         agent: String,
 
         #[arg(

@@ -7,8 +7,11 @@ use std::fs;
 use std::process::Command;
 
 pub fn execute(json_output: bool) -> Result<()> {
-    // 1. User check (should not be root)
-    let is_root = env::var("USER").map(|u| u == "root").unwrap_or(false);
+    // Effective UID, not $USER: sudo often preserves the invoking user's name.
+    #[cfg(unix)]
+    let is_root = unsafe { libc::geteuid() } == 0;
+    #[cfg(not(unix))]
+    let is_root = false;
 
     // 2. Git check
     let git_status = Command::new("git").arg("--version").output();

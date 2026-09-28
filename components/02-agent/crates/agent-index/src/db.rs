@@ -340,7 +340,7 @@ impl IndexDatabase {
                 let kind_str: String = row.get(5)?;
                 let dt_str: String = row.get(8)?;
 
-                let language = Language::from_extension(&lang_str);
+                let language = Language::from_name(&lang_str);
                 let kind = match kind_str.as_str() {
                     "source" => FileKind::Source,
                     "test" => FileKind::Test,
@@ -560,6 +560,11 @@ impl IndexDatabase {
         Ok(symbols)
     }
 
+    /// Symbols defined in one indexed file. Alias used by the staleness engine.
+    pub fn find_symbols_by_file(&self, repo_id: &RepoId, file_path: &str) -> Result<Vec<Symbol>> {
+        self.find_symbols_in_file(repo_id, file_path)
+    }
+
     /// Find all symbols defined within a specific file.
     pub fn find_symbols_in_file(&self, repo_id: &RepoId, file_path: &str) -> Result<Vec<Symbol>> {
         let mut stmt = self
@@ -719,38 +724,75 @@ impl IndexDatabase {
         repo_id: &RepoId,
         symbol_name: &str,
     ) -> Result<Vec<SymbolReference>> {
-        let mut tests = Vec::new();
+        let mut tests: Vec<SymbolReference> = Vec::new();
 
-        // 1. Direct 'tests' references or calls from test files
+        // Test definitions named after the symbol, plus calls aimed at the symbol
+        // from test files. Do not treat every call inside a similarly named test
+        // (assert, unwrap, String::new) as a test of the symbol.
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT sr.source_file, sr.source_symbol_name, sr.target_name, sr.target_symbol_id, sr.kind, sr.line_number
+            SELECT DISTINCT sr.source_file, sr.source_symbol_name, sr.target_name, sr.target_symbol_id, sr.kind, sr.line_number
             FROM symbol_references sr
             JOIN files f ON sr.source_file = f.relative_path AND sr.repo_id = f.repo_id
             WHERE sr.repo_id = ?1
-              AND (sr.target_name = ?2 OR sr.source_symbol_name LIKE ?3)
-              AND (sr.kind = 'tests' OR f.is_test = 1)
+              AND (
+                (
+                  sr.kind = 'tests'
+                  AND (
+                    sr.target_name = ?2
+                    OR sr.source_symbol_name = ?2
+                    OR sr.source_symbol_name = ?3
+                    OR sr.source_symbol_name LIKE ?4 ESCAPE '\'
+                  )
+                )
+                OR (
+                  sr.target_name = ?2
+                  AND (
+                    f.is_test = 1
+                    OR IFNULL(sr.source_symbol_name, '') LIKE 'test\_%' ESCAPE '\'
+                  )
+                )
+              )
             ORDER BY sr.source_file, sr.line_number
             "#,
         ).map_err(|e| AgentError::Database(format!("Prepare test query error: {}", e)))?;
 
-        let test_pattern = format!("%{}%", symbol_name);
+        let exact_test_name = format!("test_{}", symbol_name);
+        let test_name_prefix = format!("test_{}_%", like_escape(symbol_name));
         let rows = stmt
-            .query_map(params![repo_id.as_str(), symbol_name, test_pattern], |r| {
-                let kind_str: String = r.get(4)?;
-                Ok(SymbolReference {
-                    source_file: r.get(0)?,
-                    source_symbol_name: r.get(1)?,
-                    target_name: r.get(2)?,
-                    target_symbol_id: r.get(3)?,
-                    kind: ReferenceKind::from_str_kind(&kind_str),
-                    line_number: r.get::<_, i64>(5)? as usize,
-                })
-            })
+            .query_map(
+                params![
+                    repo_id.as_str(),
+                    symbol_name,
+                    exact_test_name,
+                    test_name_prefix
+                ],
+                |r| {
+                    let kind_str: String = r.get(4)?;
+                    Ok(SymbolReference {
+                        source_file: r.get(0)?,
+                        source_symbol_name: r.get(1)?,
+                        target_name: r.get(2)?,
+                        target_symbol_id: r.get(3)?,
+                        kind: ReferenceKind::from_str_kind(&kind_str),
+                        line_number: r.get::<_, i64>(5)? as usize,
+                    })
+                },
+            )
             .map_err(|e| AgentError::Database(format!("Query tests error: {}", e)))?;
 
         for t in rows.flatten() {
-            tests.push(t);
+            if let Some(existing) = tests.iter_mut().find(|existing| {
+                existing.source_file == t.source_file
+                    && existing.source_symbol_name == t.source_symbol_name
+                    && existing.target_name == t.target_name
+            }) {
+                if existing.kind != ReferenceKind::Tests && t.kind == ReferenceKind::Tests {
+                    *existing = t;
+                }
+            } else {
+                tests.push(t);
+            }
         }
 
         Ok(tests)
@@ -941,4 +983,11 @@ impl IndexDatabase {
 
         Ok((files_updated, sym_count, files_deleted))
     }
+}
+
+fn like_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }

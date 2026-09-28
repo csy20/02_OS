@@ -105,9 +105,15 @@ Generate or automatically install MCP configurations for supported coding agents
 
 # Print configuration for OpenCode
 02 connect opencode
+
+# Install into Cursor, Gemini CLI, or Zed
+02 connect cursor --write
+02 connect gemini --write
+02 connect zed --write
 ```
 
-Generated configuration format:
+Codex, Claude, OpenCode, Cursor, and Gemini CLI use this configuration shape. Default paths are `~/.config/codex/mcp.json`, `~/.config/Claude/claude_desktop_config.json`, `~/.config/opencode/mcp.json`, `~/.cursor/mcp.json`, and `~/.gemini/antigravity-cli/mcp_config.json`.
+
 ```json
 {
   "mcpServers": {
@@ -118,6 +124,8 @@ Generated configuration format:
   }
 }
 ```
+
+Zed is written into `~/.config/zed/settings.json` under `context_servers` (`source: custom`).
 
 ---
 

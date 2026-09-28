@@ -19,6 +19,14 @@ fn test_language_detection() {
     assert_eq!(Language::from_extension("dart"), Language::Dart);
     assert_eq!(Language::from_extension("sh"), Language::Bash);
     assert_eq!(Language::from_extension("unknownext"), Language::Unknown);
+    assert_eq!(Language::from_name("rust"), Language::Rust);
+    assert_eq!(Language::from_name("python"), Language::Python);
+    assert_eq!(Language::from_name("typescript"), Language::TypeScript);
+    assert_eq!(Language::from_name("javascript"), Language::JavaScript);
+    assert_eq!(Language::from_name("bash"), Language::Bash);
+    assert_eq!(Language::from_name("cpp"), Language::Cpp);
+    assert_eq!(Language::from_name("rs"), Language::Rust);
+    assert_eq!(Language::from_name("not-a-language"), Language::Unknown);
 }
 
 #[test]
