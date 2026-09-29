@@ -1,3 +1,2 @@
 Defaults lecture = never
-%wheel ALL=(ALL:ALL) NOPASSWD: ALL
 live ALL=(ALL:ALL) NOPASSWD: ALL

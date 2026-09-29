@@ -1,12 +1,14 @@
 use agent_core::{
     paths::StoragePaths,
     types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus, RepoId, RepoInfo},
-    Result,
+    AgentError, Result,
 };
 use chrono::Utc;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
+use std::path::{Path, PathBuf};
 
 pub struct MemoryStore {
     path: PathBuf,
@@ -53,6 +55,11 @@ impl MemoryStore {
 
     /// Insert or update a memory in memories.jsonl atomically.
     pub fn save(&self, memory: &EvidenceMemory) -> Result<()> {
+        let _lock = self.lock()?;
+        self.save_unlocked(memory)
+    }
+
+    fn save_unlocked(&self, memory: &EvidenceMemory) -> Result<()> {
         let mut all = self.load_all()?;
         if let Some(pos) = all.iter().position(|m| m.id == memory.id) {
             all[pos] = memory.clone();
@@ -65,6 +72,7 @@ impl MemoryStore {
 
     /// Delete a memory by ID.
     pub fn delete(&self, id: &str) -> Result<bool> {
+        let _lock = self.lock()?;
         let mut all = self.load_all()?;
         let initial_len = all.len();
         all.retain(|m| m.id != id);
@@ -75,6 +83,10 @@ impl MemoryStore {
         } else {
             Ok(false)
         }
+    }
+
+    fn lock(&self) -> Result<ExclusiveLock> {
+        ExclusiveLock::acquire(&lock_path(&self.path))
     }
 
     fn write_all(&self, memories: &[EvidenceMemory]) -> Result<()> {
@@ -103,6 +115,7 @@ impl MemoryStore {
 
     /// Automatically discover foundational architectural facts if memories are currently empty.
     pub fn seed_initial_if_empty(&self, repo_info: &RepoInfo) -> Result<usize> {
+        let _lock = self.lock()?;
         let existing = self.load_all()?;
         if !existing.is_empty() {
             return Ok(0);
@@ -160,9 +173,52 @@ impl MemoryStore {
         }
 
         for mem in &seeded {
-            self.save(mem)?;
+            self.save_unlocked(mem)?;
         }
 
         Ok(seeded.len())
+    }
+}
+
+fn lock_path(path: &Path) -> PathBuf {
+    let mut file_name = path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("memories.jsonl"))
+        .to_os_string();
+    file_name.push(".lock");
+    path.with_file_name(file_name)
+}
+
+struct ExclusiveLock {
+    file: fs::File,
+}
+
+impl ExclusiveLock {
+    fn acquire(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if rc != 0 {
+            return Err(AgentError::Io(std::io::Error::last_os_error()));
+        }
+        Ok(Self { file })
+    }
+}
+
+impl Drop for ExclusiveLock {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
     }
 }

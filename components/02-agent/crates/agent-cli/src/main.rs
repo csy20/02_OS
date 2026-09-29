@@ -206,10 +206,7 @@ fn main() -> ExitCode {
         Commands::Mcp => commands::mcp::execute(),
         Commands::Connect { agent, write } => commands::connect::execute(&agent, write),
         Commands::Serve => commands::serve::execute(),
-        Commands::Gc => {
-            eprintln!("Cleaning temporary caches...");
-            Ok(())
-        }
+        Commands::Gc => commands::gc::execute(cli.json),
     };
 
     match result {

@@ -102,7 +102,7 @@ impl RepoScanner {
                     hasher.update(&bytes);
                     let h = hex::encode(hasher.finalize());
                     // If UTF-8, store text content for FTS5 indexing
-                    let text = std::str::from_utf8(&bytes).ok().map(|s| s.to_string());
+                    let text = std::str::from_utf8(&bytes).ok().map(SecretPattern::redact);
                     (h, text)
                 }
                 Err(_) => continue,

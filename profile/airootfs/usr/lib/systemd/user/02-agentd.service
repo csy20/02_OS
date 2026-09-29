@@ -10,11 +10,13 @@ Restart=on-failure
 RestartSec=3s
 Environment=RUST_LOG=info
 
-# User-level protection & sandboxing
+# User-level protection. Home stays writable because the daemon indexes
+# repositories that live under the user's home directory. The data directory
+# itself is created mode 0700.
 ProtectSystem=strict
 ProtectHome=read-write
 ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %t
-PrivateTmp=true
+NoNewPrivileges=true
 
 [Install]
 WantedBy=default.target

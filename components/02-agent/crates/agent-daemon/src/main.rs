@@ -74,7 +74,10 @@ fn main() -> Result<()> {
 
     thread::spawn(move || {
         while RUNNING.load(Ordering::Relaxed) {
-            watcher_bg.sync_all();
+            let errors = watcher_bg.sync_all();
+            if errors > 0 {
+                eprintln!("02-agentd: {errors} repository sync(s) failed");
+            }
             thread::sleep(interval_dur);
         }
     });
@@ -107,6 +110,10 @@ fn main() -> Result<()> {
         if (pfd.revents & libc::POLLIN) != 0 {
             match listener.accept() {
                 Ok((stream, _)) => {
+                    if !DaemonSocket::accepts_peer(&stream) {
+                        drop(stream);
+                        continue;
+                    }
                     let watcher_conn = watcher.clone();
                     let default_dir = current_dir.clone();
 

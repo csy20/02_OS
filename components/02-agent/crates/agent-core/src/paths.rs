@@ -2,7 +2,8 @@ use crate::error::{AgentError, Result};
 use crate::types::RepoId;
 use directories::ProjectDirs;
 use std::fs;
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 pub struct StoragePaths;
 
@@ -38,11 +39,28 @@ impl StoragePaths {
         Ok(dirs.config_dir().to_path_buf())
     }
 
+    /// Create a directory and restrict it to the owning user (`0700`).
+    pub fn ensure_private_dir(path: &Path) -> Result<()> {
+        fs::create_dir_all(path)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+
+    /// Create the XDG data, cache, and config directories as `0700`.
+    pub fn ensure_user_dirs() -> Result<()> {
+        Self::ensure_private_dir(&Self::data_dir()?)?;
+        Self::ensure_private_dir(&Self::cache_dir()?)?;
+        Self::ensure_private_dir(&Self::config_dir()?)?;
+        Ok(())
+    }
+
     /// Directory for a specific repository: ~/.local/share/02-agent/repos/<repo-id>/
     pub fn repo_dir(repo_id: &RepoId) -> Result<PathBuf> {
-        let base = Self::data_dir()?;
-        let path = base.join("repos").join(repo_id.as_str());
-        fs::create_dir_all(&path)?;
+        Self::ensure_user_dirs()?;
+        let repos = Self::data_dir()?.join("repos");
+        Self::ensure_private_dir(&repos)?;
+        let path = repos.join(repo_id.as_str());
+        Self::ensure_private_dir(&path)?;
         Ok(path)
     }
 

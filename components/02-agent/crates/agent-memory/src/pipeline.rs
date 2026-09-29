@@ -237,12 +237,14 @@ impl Task for SyncCatalog {
             )?;
             ctx.files_updated = updated;
             ctx.symbols_written = extracted.0.len();
+            ctx.db.purge_catalog_orphans(&ctx.dataset.id)?;
             return Ok(());
         };
         ctx.symbols_written = symbols.len();
         ctx.files_updated = ctx.db.save_scanned_files(&ctx.info.id, &ctx.scanned)?;
         ctx.db
             .save_symbols_and_references(&ctx.info.id, &symbols, &references)?;
+        ctx.db.purge_catalog_orphans(&ctx.dataset.id)?;
         Ok(())
     }
 }
@@ -332,6 +334,15 @@ impl Task for RecordNote {
             .ok_or_else(|| {
                 AgentError::Config("--text is required for session and text sources".to_string())
             })?;
+        let max_bytes = ctx.config.max_file_size_kb.saturating_mul(1024) as usize;
+        if text.len() > max_bytes {
+            return Err(AgentError::Config(format!(
+                "text payload is {} bytes, over the {} KB limit",
+                text.len(),
+                ctx.config.max_file_size_kb
+            )));
+        }
+        let text = agent_core::SecretPattern::redact(&text);
         let session_note = ctx.sources.contains(&SourceKind::SessionNote);
         let source_kind = if session_note {
             SourceKind::SessionNote
@@ -503,25 +514,89 @@ impl Task for ProjectGraph {
                     .unwrap_or(reference.source_file.as_str()),
                 None,
             )?;
-            let dst = match by_name.get(&reference.target_name) {
-                Some(ids) if ids.len() == 1 => ids[0].clone(),
-                _ => {
-                    let id = name_node_id(&ctx.dataset.id, &reference.target_name);
-                    ctx.db.upsert_node(
-                        ctx.info.id.as_str(),
-                        &ctx.dataset.id,
-                        &id,
-                        "name",
-                        &reference.target_name,
-                        None,
-                    )?;
-                    id
-                }
-            };
-            write_edge(ctx, &src, &dst, kind)?;
+            let (targets, payload) =
+                resolve_reference_targets(ctx, reference, &by_name, &by_file_name)?;
+            for dst in targets {
+                write_edge_with_payload(ctx, &src, &dst, kind, payload.as_deref())?;
+            }
         }
         Ok(())
     }
+}
+
+fn resolve_reference_targets(
+    ctx: &mut TaskContext,
+    reference: &agent_core::SymbolReference,
+    by_name: &HashMap<String, Vec<String>>,
+    by_file_name: &HashMap<(String, String), String>,
+) -> Result<(Vec<String>, Option<String>)> {
+    match reference.kind {
+        agent_core::ReferenceKind::Imports => resolve_import_targets(ctx, reference, by_name),
+        agent_core::ReferenceKind::Calls | agent_core::ReferenceKind::Tests => {
+            resolve_call_targets(ctx, reference, by_name, by_file_name)
+        }
+        _ => Ok((Vec::new(), None)),
+    }
+}
+
+fn resolve_call_targets(
+    ctx: &mut TaskContext,
+    reference: &agent_core::SymbolReference,
+    by_name: &HashMap<String, Vec<String>>,
+    by_file_name: &HashMap<(String, String), String>,
+) -> Result<(Vec<String>, Option<String>)> {
+    let local = (reference.source_file.clone(), reference.target_name.clone());
+    if let Some(id) = by_file_name.get(&local) {
+        return Ok((vec![id.clone()], None));
+    }
+    if let Some(ids) = by_name.get(&reference.target_name) {
+        if !ids.is_empty() {
+            return Ok((ids.clone(), None));
+        }
+    }
+    let synthetic = ensure_name_node(ctx, &reference.target_name)?;
+    Ok((vec![synthetic], Some(reference.target_name.clone())))
+}
+
+fn resolve_import_targets(
+    ctx: &mut TaskContext,
+    reference: &agent_core::SymbolReference,
+    by_name: &HashMap<String, Vec<String>>,
+) -> Result<(Vec<String>, Option<String>)> {
+    let raw = reference.target_name.clone();
+    let short = import_symbol_name(&raw);
+    let hits = by_name.get(&short).map(Vec::as_slice).unwrap_or(&[]);
+    if hits.len() == 1 {
+        return Ok((vec![hits[0].clone()], Some(raw)));
+    }
+    let synthetic = ensure_name_node(ctx, &short)?;
+    Ok((vec![synthetic], Some(raw)))
+}
+
+fn import_symbol_name(target: &str) -> String {
+    let segment = target
+        .rsplit([':', '/', '.', ' ', '{', ','])
+        .find(|part| !part.trim().is_empty())
+        .unwrap_or(target);
+    segment
+        .trim()
+        .trim_matches(['"', '\'', '`', '{', '}', ';', ','])
+        .trim()
+        .to_string()
+}
+
+fn ensure_name_node(ctx: &mut TaskContext, name: &str) -> Result<String> {
+    let id = name_node_id(&ctx.dataset.id, name);
+    ctx.db.upsert_node(
+        ctx.info.id.as_str(),
+        &ctx.dataset.id,
+        &id,
+        "name",
+        name,
+        None,
+    )?;
+    ctx.nodes_written += 1;
+    Ok(id)
 }
 
 impl Task for WriteChunks {
@@ -569,7 +644,7 @@ impl Task for WriteChunks {
                     ctx,
                     "chunk",
                     &stored_path,
-                    &window.text,
+                    "",
                     Provenance {
                         source_kind,
                         commit_id: commit.clone(),
@@ -714,12 +789,8 @@ pub fn cognify_pipeline(
         vec![SourceKind::Worktree, SourceKind::Document],
         None,
     )?;
-    let mut pipeline = Pipeline::new();
-    pipeline.push(SyncCatalog);
-    pipeline.push(ProjectGraph);
-    pipeline.push(WriteChunks);
-    pipeline.push(LinkCommits);
-    pipeline.run(&mut ctx)?;
+    SyncCatalog.run(&mut ctx)?;
+    run_projection(&mut ctx)?;
     extra.run(&mut ctx)?;
     Ok(CognifyReport {
         dataset_id: ctx.dataset.id.clone(),
@@ -728,6 +799,49 @@ pub fn cognify_pipeline(
         chunks: ctx.chunks_written,
         symbols: ctx.symbols_written,
     })
+}
+
+/// Scan once, update the catalog, and project the graph.
+pub fn index_pipeline(
+    handle: &mut RepoHandle,
+    full: bool,
+    extra: &TaskRegistry,
+) -> Result<AddReport> {
+    let mut ctx = handle.context(
+        None,
+        full,
+        vec![SourceKind::Worktree, SourceKind::Document],
+        None,
+    )?;
+    SyncCatalog.run(&mut ctx)?;
+    RecordFiles.run(&mut ctx)?;
+    run_projection(&mut ctx)?;
+    extra.run(&mut ctx)?;
+    Ok(AddReport {
+        dataset_id: ctx.dataset.id.clone(),
+        files_updated: ctx.files_updated,
+        datapoints_inserted: ctx.datapoints_inserted,
+        datapoints_unchanged: ctx.datapoints_unchanged,
+    })
+}
+
+fn run_projection(ctx: &mut TaskContext) -> Result<()> {
+    ctx.db.begin_immediate()?;
+    let outcome = project_stages(ctx);
+    match outcome {
+        Ok(()) => ctx.db.commit_tx(),
+        Err(err) => {
+            ctx.db.rollback_tx();
+            Err(err)
+        }
+    }
+}
+
+fn project_stages(ctx: &mut TaskContext) -> Result<()> {
+    ProjectGraph.run(ctx)?;
+    WriteChunks.run(ctx)?;
+    LinkCommits.run(ctx)?;
+    Ok(())
 }
 
 pub fn export_graph(
@@ -800,7 +914,6 @@ fn is_doc_path(path: &str) -> bool {
 struct ChunkWindow {
     start: usize,
     end: usize,
-    text: String,
 }
 
 fn chunk_windows(content: &str) -> Vec<ChunkWindow> {
@@ -826,11 +939,7 @@ fn chunk_windows(content: &str) -> Vec<ChunkWindow> {
         } else {
             offsets[end_line]
         };
-        windows.push(ChunkWindow {
-            start,
-            end,
-            text: content[start..end].to_string(),
-        });
+        windows.push(ChunkWindow { start, end });
         if end_line == pieces.len() {
             break;
         }
@@ -892,13 +1001,27 @@ fn remember_point(
 }
 
 fn write_edge(ctx: &mut TaskContext, src: &str, dst: &str, kind: EdgeKind) -> Result<()> {
+    write_edge_with_payload(ctx, src, dst, kind, None)
+}
+
+fn write_edge_with_payload(
+    ctx: &mut TaskContext,
+    src: &str,
+    dst: &str,
+    kind: EdgeKind,
+    payload: Option<&str>,
+) -> Result<()> {
     if !ctx.ontology.allows_edge(kind) || src == dst {
         return Ok(());
     }
-    if ctx
-        .db
-        .upsert_edge(ctx.info.id.as_str(), &ctx.dataset.id, src, dst, kind)?
-    {
+    if ctx.db.upsert_edge_with_payload(
+        ctx.info.id.as_str(),
+        &ctx.dataset.id,
+        src,
+        dst,
+        kind,
+        payload,
+    )? {
         ctx.edges_written += 1;
     }
     Ok(())

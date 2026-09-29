@@ -1,6 +1,11 @@
-use agent_core::{config::RepoConfig, types::RepoId, RepoInfo};
-use agent_index::{IndexDatabase, RepoScanner};
+use agent_core::{
+    config::RepoConfig,
+    types::{RepoId, Symbol, SymbolKind},
+    Provenance, RepoInfo, SourceKind,
+};
+use agent_index::{gc_repos, IndexDatabase, NewDataPoint, RepoScanner};
 use std::fs;
+use std::path::PathBuf;
 use tempfile::tempdir;
 
 #[test]
@@ -172,4 +177,126 @@ fn test_find_tests_ignores_unrelated_calls_inside_tests() {
     assert!(broad
         .iter()
         .all(|t| t.target_name != "assert" && t.target_name != "new"));
+}
+
+fn sample_symbol(name: &str, qualified: &str) -> Symbol {
+    Symbol {
+        id: format!("sym-{name}"),
+        name: name.to_string(),
+        qualified_name: qualified.to_string(),
+        kind: SymbolKind::Function,
+        file_path: "src/parse.rs".to_string(),
+        start_line: 1,
+        end_line: 1,
+        signature: None,
+        doc_comment: None,
+        fingerprint: "fp".to_string(),
+    }
+}
+
+#[test]
+fn test_symbol_queries_escape_like_wildcards() {
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    let repo_id = RepoId::new("like-repo");
+    db.update_repo_info(&RepoInfo {
+        id: repo_id.clone(),
+        name: "like".into(),
+        root_path: PathBuf::from("/tmp/like-repo"),
+        head_commit: None,
+        branch: None,
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    db.save_symbols_and_references(
+        &repo_id,
+        &[
+            sample_symbol("parse_header", "src/parse.rs::parse_header"),
+            sample_symbol("parseXheader", "src/parse.rs::parseXheader"),
+            sample_symbol("100%", "src/parse.rs::100%"),
+            sample_symbol("plain", "src/parse.rs::plain"),
+        ],
+        &[],
+    )
+    .unwrap();
+
+    let found = db.find_symbols_by_name(&repo_id, "parse_header").unwrap();
+    assert!(found.iter().any(|symbol| symbol.name == "parse_header"));
+    assert!(found.iter().all(|symbol| symbol.name != "parseXheader"));
+
+    let searched = db.search_symbols(&repo_id, "%", 20).unwrap();
+    assert!(searched.iter().any(|symbol| symbol.name == "100%"));
+    assert!(searched.iter().all(|symbol| symbol.name == "100%"));
+}
+
+#[test]
+fn test_gc_drops_orphan_directories_and_old_versions() {
+    let data = tempdir().unwrap();
+    let missing = data.path().join("missing-root");
+    let orphan = data.path().join("repos").join("orphan");
+    fs::create_dir_all(&orphan).unwrap();
+    let mut orphan_db = IndexDatabase::open(orphan.join("index.sqlite")).unwrap();
+    orphan_db
+        .update_repo_info(&RepoInfo {
+            id: RepoId::new("orphan"),
+            name: "orphan".into(),
+            root_path: missing,
+            head_commit: None,
+            branch: None,
+            is_clean: true,
+            modified_count: 0,
+            untracked_count: 0,
+        })
+        .unwrap();
+    drop(orphan_db);
+
+    let live_root = data.path().join("live-src");
+    fs::create_dir_all(&live_root).unwrap();
+    let live_dir = data.path().join("repos").join("live");
+    fs::create_dir_all(&live_dir).unwrap();
+    let mut live = IndexDatabase::open(live_dir.join("index.sqlite")).unwrap();
+    let repo_id = RepoId::new("live");
+    live.update_repo_info(&RepoInfo {
+        id: repo_id.clone(),
+        name: "live".into(),
+        root_path: live_root,
+        head_commit: None,
+        branch: None,
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    let dataset = live.ensure_dataset(&repo_id, "default").unwrap();
+    for index in 0..5 {
+        live.put_datapoint(NewDataPoint {
+            repo_id: repo_id.clone(),
+            dataset_id: dataset.id.clone(),
+            kind: "pasted_text".into(),
+            path: String::new(),
+            content: format!("note {index}"),
+            provenance: Provenance {
+                source_kind: SourceKind::PastedText,
+                commit_id: None,
+                path: String::new(),
+                start_byte: None,
+                end_byte: None,
+                symbol_fingerprint: None,
+            },
+            confidence: 1.0,
+        })
+        .unwrap();
+    }
+    drop(live);
+
+    let report = gc_repos(data.path()).unwrap();
+    assert_eq!(report.orphan_directories, 1);
+    assert!(!orphan.exists());
+    assert!(live_dir.join("index.sqlite").is_file());
+    assert!(report.databases_vacuumed >= 1);
+    let live = IndexDatabase::open(live_dir.join("index.sqlite")).unwrap();
+    let points = live.list_datapoints(&dataset.id).unwrap();
+    assert_eq!(points.len(), 3);
+    assert!(points.iter().all(|point| point.kind == "pasted_text"));
 }

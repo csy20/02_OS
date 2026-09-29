@@ -103,9 +103,11 @@ components/02-agent/
 - Implements Tree-sitter parsers for:
   - Rust (`tree-sitter-rust`)
   - Python (`tree-sitter-python`)
-  - C & C++ (`tree-sitter-c`)
+  - C (`tree-sitter-c`) and C++ (`tree-sitter-cpp`)
+  - Go (`tree-sitter-go`)
+  - Dart (`tree-sitter-dart`)
   - Bash (`tree-sitter-bash`)
-  - JavaScript & TypeScript
+  - JavaScript (`tree-sitter-javascript`) and TypeScript (`tree-sitter-typescript`, including TSX)
   - Graceful regex fallback for unsupported languages.
 - **Extracted Entities**:
   - `Symbol`: Function, Method, Class, Struct, Enum, Interface, Module, Variable.
@@ -159,75 +161,89 @@ components/02-agent/
   - `memory_get`: Retrieve architectural memories by ID or tag.
   - `memory_write`: Record new verified evidence-based memory.
   - `memory_status`: Freshness audit of all repository memories.
+  - `add`: Ingest worktree files, documents, history, or pasted text.
+  - `cognify`: Project symbols, chunks, and graph edges for a dataset.
+  - `graph_export`: Export the dataset graph as JSON, DOT, or Mermaid.
 - **Agent Connect**: `02 connect <agent>` configures Codex, Claude Code, OpenCode, Cursor, Gemini CLI, and Zed.
 
 ### 2.8 `agent-daemon`
 - **Binary**: `02-agentd`, packaged as a systemd user service (`02-agentd.service`).
 - **IPC Transport**: Unix domain socket located at `$XDG_RUNTIME_DIR/02agent.sock` with restrictive `0600` permissions.
-- **Security Check**: Enforces running as an unprivileged user (refuses root execution).
-- **Repo Watcher**: Continuously monitors registered repositories (`watched_repos.json`) and triggers incremental indexing in the background.
+- **Security Check**: Warns when started as root and keeps running. The socket is mode `0600`, storage directories are mode `0700`, and each accepted connection must present the daemon user's `SO_PEERCRED` uid.
+- **Repo Watcher**: Monitors registered repositories (`watched_repos.json`). When HEAD or the worktree fingerprint changes, it runs the same single-scan index path as `02 index` and logs sync failures.
 
 ---
 
 ## 3. SQLite Storage Schema
 
-All index metadata is stored in `~/.local/share/02-agent/repos/<repo-id>/index.sqlite`:
+All index metadata is stored in `~/.local/share/02-agent/repos/<repo-id>/index.sqlite`. The database is schema version 2. The statements below match `components/02-agent/crates/agent-index/src/schema.rs`.
 
 ```sql
--- File catalog
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    path TEXT UNIQUE NOT NULL,
+    repo_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL UNIQUE,
+    file_hash TEXT NOT NULL,
+    git_blob_id TEXT,
+    size_bytes INTEGER NOT NULL,
+    language TEXT NOT NULL,
     kind TEXT NOT NULL,
-    language TEXT,
-    size INTEGER NOT NULL,
-    mtime INTEGER NOT NULL,
-    sha256 TEXT NOT NULL,
-    blob_id TEXT,
-    indexed_at INTEGER NOT NULL
+    is_test INTEGER NOT NULL DEFAULT 0,
+    is_doc INTEGER NOT NULL DEFAULT 0,
+    indexed_at TEXT NOT NULL,
+    FOREIGN KEY(repo_id) REFERENCES repositories(repo_id) ON DELETE CASCADE
 );
 
--- Full-text search index (FTS5)
-CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-    path,
-    content,
-    tokenize = 'porter unicode61'
-);
-
--- AST Symbol index
 CREATE TABLE IF NOT EXISTS symbols (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_id INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    repo_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    qualified_name TEXT NOT NULL,
     kind TEXT NOT NULL,
+    file_path TEXT NOT NULL,
     start_line INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
-    start_col INTEGER NOT NULL,
-    end_col INTEGER NOT NULL,
     signature TEXT,
+    doc_comment TEXT,
     fingerprint TEXT NOT NULL,
-    FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE
+    FOREIGN KEY(repo_id) REFERENCES repositories(repo_id) ON DELETE CASCADE
 );
 
--- Cross-symbol relationships (calls, imports, tests)
 CREATE TABLE IF NOT EXISTS symbol_references (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_symbol_id INTEGER,
-    file_id INTEGER NOT NULL,
+    repo_id TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    source_symbol_name TEXT,
     target_name TEXT NOT NULL,
-    kind TEXT NOT NULL, -- 'call', 'import', 'test_target', 'inheritance'
-    line INTEGER NOT NULL,
-    FOREIGN KEY(source_symbol_id) REFERENCES symbols(id) ON DELETE CASCADE,
-    FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE
+    target_symbol_id TEXT,
+    kind TEXT NOT NULL,
+    line_number INTEGER NOT NULL,
+    FOREIGN KEY(repo_id) REFERENCES repositories(repo_id) ON DELETE CASCADE
 );
 
--- Indices for rapid query response (<15ms)
-CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
-CREATE INDEX IF NOT EXISTS idx_files_kind ON files(kind);
-CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);
-CREATE INDEX IF NOT EXISTS idx_references_target ON symbol_references(target_name);
-CREATE INDEX IF NOT EXISTS idx_references_source ON symbol_references(source_symbol_id);
+CREATE TABLE IF NOT EXISTS graph_nodes (
+    id TEXT PRIMARY KEY,
+    repo_id TEXT NOT NULL,
+    dataset_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    datapoint_id TEXT,
+    FOREIGN KEY(repo_id) REFERENCES repositories(repo_id) ON DELETE CASCADE,
+    FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS graph_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id TEXT NOT NULL,
+    dataset_id TEXT NOT NULL,
+    src_id TEXT NOT NULL,
+    dst_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT,
+    UNIQUE(dataset_id, src_id, dst_id, kind),
+    FOREIGN KEY(src_id) REFERENCES graph_nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY(dst_id) REFERENCES graph_nodes(id) ON DELETE CASCADE
+);
 ```
 
 ---

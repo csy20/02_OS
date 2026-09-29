@@ -2,6 +2,7 @@ use agent_core::{paths::StoragePaths, AgentError, Result};
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
@@ -16,8 +17,43 @@ impl DaemonSocket {
         }
 
         let base = StoragePaths::data_dir()?;
-        fs::create_dir_all(&base)?;
+        StoragePaths::ensure_private_dir(&base)?;
         Ok(base.join("02agent.sock"))
+    }
+
+    pub fn current_uid() -> u32 {
+        unsafe { libc::getuid() }
+    }
+
+    /// UID of the process on the other end of `stream`.
+    pub fn peer_uid(stream: &UnixStream) -> Result<u32> {
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        let rc = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                &mut cred as *mut libc::ucred as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(cred.uid)
+    }
+
+    /// Accept the stream only when it belongs to the daemon's user.
+    pub fn accepts_peer(stream: &UnixStream) -> bool {
+        match Self::peer_uid(stream) {
+            Ok(uid) => uid == Self::current_uid(),
+            Err(_) => false,
+        }
     }
 
     /// Bind to Unix domain socket, cleaning up stale sockets if present.
@@ -35,7 +71,9 @@ impl DaemonSocket {
         }
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                StoragePaths::ensure_private_dir(parent)?;
+            }
         }
 
         let listener = UnixListener::bind(path).map_err(|e| {

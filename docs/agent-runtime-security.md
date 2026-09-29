@@ -9,14 +9,14 @@ Because coding agents interact with proprietary source code and sensitive reposi
 1. **Zero External Data Exfiltration**: The runtime never initiates external network requests, transmits telemetry, or contacts cloud endpoints.
 2. **Zero Provider Lock-In**: The runtime does not handle or store proprietary LLM API keys. It functions strictly as a local repository intelligence engine over standard MCP.
 3. **Secret Isolation**: Sensitive files, private keys, and API tokens are detected and stripped before entering search indices or evidence packages.
-4. **Non-Root Sandboxing**: The daemon enforces non-root execution and operates inside a hardened systemd user environment.
+4. **User-Service Sandboxing**: The daemon is a systemd user service. It warns when started as root and keeps running. Storage and the socket stay private to the owning uid.
 5. **Multi-User IPC Isolation**: Inter-process communication occurs over Unix domain sockets restricted exclusively to the owning user (`0600`).
 
 ---
 
 ## 2. Secret Scanning & Exclusion Pipeline
 
-The indexing engine (`agent-index`) integrates pre-indexing pattern matching (`agent-core::SecretPattern`) to prevent sensitive credentials from ever being written into SQLite WAL databases or FTS5 search indices.
+The indexing engine (`agent-index`) skips exact secret filenames (`.env`, key material, `secrets.json`), `.env.*` names, and secret extensions. Source files whose names merely contain words like `secret` stay in the catalog. After a file is decoded as UTF-8, credential matches are replaced with `[REDACTED]` before FTS and file datapoints are written. The content hash still uses the raw bytes, so a later edit is detected.
 
 ### Filtered Patterns
 
@@ -41,42 +41,28 @@ Developers can audit their repository at any time:
 
 ### Non-Root Enforcement
 
-The `02-agentd` background service refuses to run as UID 0 (`root`). If invoked with root privileges, it immediately terminates with an error:
-
-```text
-ERROR: 02-agentd must run as a regular user, not as root (UID 0).
-```
+`02-agentd` is a user service. If it is started as UID 0 it prints a warning and continues. It does not exit solely because the uid is root. Socket mode `0600`, directory mode `0700`, and `SO_PEERCRED` still limit who can connect.
 
 ### Systemd User Sandboxing
 
-In **02_OS**, `02-agentd` is managed as an unprivileged user service (`02-agentd.service`) under `systemd --user`. The service profile applies defensive Linux sandboxing flags:
+In **02_OS**, `02-agentd` is managed as an unprivileged user service (`02-agentd.service`) under `systemd --user`:
 
 ```ini
-[Unit]
-Description=02 Agent Runtime Daemon
-Documentation=man:02agent(1)
-After=default.target
-
 [Service]
 Type=simple
 ExecStart=/usr/bin/02-agentd
 Restart=on-failure
 RestartSec=3s
+Environment=RUST_LOG=info
 
-# Security Hardening
 ProtectSystem=strict
-ReadWritePaths=%h/.local/share/02-agent %t
-ProtectHome=read-only
-PrivateTmp=true
+ProtectHome=read-write
+ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %t
 NoNewPrivileges=true
-
-[Install]
-WantedBy=default.target
 ```
 
 - **`ProtectSystem=strict`**: Mounts `/usr`, `/boot`, `/etc`, and system directories read-only.
-- **`ProtectHome=read-only`**: Prevents arbitrary modification of user home directories, with write access scoped strictly to `%h/.local/share/02-agent` and `%t` (`$XDG_RUNTIME_DIR`).
-- **`PrivateTmp=true`**: Provides an isolated `/tmp` namespace distinct from other user sessions.
+- **`ProtectHome=read-write`**: The daemon indexes repositories under the home directory. The data directory `~/.local/share/02-agent` is still created mode `0700`.
 - **`NoNewPrivileges=true`**: Disallows gaining new privileges via `setuid` binaries.
 
 ---
@@ -92,9 +78,9 @@ Fallback:  ~/.local/share/02-agent/02agent.sock
 
 ### Access Restrictions
 
-- **File Permissions**: The socket is created with `0600` permissions (`-rw-------`). Only the user who spawned the daemon has read and write access.
-- **Directory Permissions**: The storage directory `~/.local/share/02-agent` is initialized with `0700` (`drwx------`).
-- **Peer Credential Checking**: Unix peer credentials (`SO_PEERCRED`) verify the connecting client PID and UID match the daemon owner.
+- **File Permissions**: The socket is created with `0600` permissions (`-rw-------`). SQLite database, WAL, and SHM files are mode `0600`.
+- **Directory Permissions**: Data, cache, config, and per-repository directories are initialized with `0700` (`drwx------`).
+- **Peer Credential Checking**: `SO_PEERCRED` must report the same uid as the daemon. A failed lookup or a different uid drops the connection.
 
 ---
 
@@ -102,7 +88,9 @@ Fallback:  ~/.local/share/02-agent/02agent.sock
 
 When running in the 02_OS live ISO environment:
 
-- The default live user is `live` (UID 1000).
+- The live account is `live` with password `live`. `sudo` without a password is granted to `live` only. Members of `wheel` do not get `NOPASSWD`.
+- The root account is locked (`passwd -l root`). `sshd` does not set `PermitRootLogin`. There is no `script=` hook under `/root`.
+- Live detection uses `/run/archiso/bootmnt` and `/run/archiso/airootfs`. The account name `live` is not treated as proof of the live image.
 - The root filesystem is a memory-backed OverlayFS (`cowspace`).
 - **RAM Preservation**:
   - SQLite indexes operate with `PRAGMA synchronous = NORMAL;` and `PRAGMA cache_size = -64000;` (64 MB max memory cache).

@@ -46,3 +46,10 @@ fn v1_database_upgrades_in_place() {
     assert_eq!(marker, 1);
     let _ = fs::metadata(&db_path).unwrap();
 }
+
+#[test]
+fn architecture_doc_matches_schema() {
+    let doc = include_str!("../../../../../docs/agent-runtime-architecture.md");
+    assert!(doc.contains("relative_path"));
+    assert!(doc.contains("graph_nodes"));
+}
