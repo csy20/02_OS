@@ -95,3 +95,56 @@ function build_iso() {
         .iter()
         .any(|r| r.target_name == "mkarchiso" && r.kind == ReferenceKind::Calls));
 }
+
+#[test]
+fn test_go_cpp_typescript_and_dart_parsing() {
+    let go = "package main\nfunc helper() {}\nfunc main() { helper() }\n";
+    let go_res = CodeExtractor::extract("main.go", go, Language::Go).unwrap();
+    assert!(go_res.symbols.iter().any(|s| s.name == "helper"));
+    assert!(go_res.symbols.iter().any(|s| s.name == "main"));
+    assert!(go_res.references.iter().any(|r| {
+        r.kind == ReferenceKind::Calls
+            && r.target_name == "helper"
+            && r.source_symbol_name.as_deref() == Some("main")
+    }));
+
+    let cpp = "namespace demo {\nvoid parse_header() {}\nint main() { parse_header(); }\n}\n";
+    let cpp_res = CodeExtractor::extract("parse.cpp", cpp, Language::Cpp).unwrap();
+    assert!(cpp_res.symbols.iter().any(|s| s.name == "parse_header"));
+    assert!(cpp_res
+        .references
+        .iter()
+        .any(|r| { r.kind == ReferenceKind::Calls && r.target_name == "parse_header" }));
+
+    let ts = "interface User { name: string }\ntype Id = string;\nenum Color { Red }\nfunction greet(id: Id) { return id; }\n";
+    let ts_res = CodeExtractor::extract("app.ts", ts, Language::TypeScript).unwrap();
+    assert!(ts_res
+        .symbols
+        .iter()
+        .any(|s| s.name == "User" && s.kind == SymbolKind::Interface));
+    assert!(ts_res
+        .symbols
+        .iter()
+        .any(|s| s.name == "Id" && s.kind == SymbolKind::TypeAlias));
+    assert!(ts_res
+        .symbols
+        .iter()
+        .any(|s| s.name == "Color" && s.kind == SymbolKind::Enum));
+    assert!(ts_res
+        .symbols
+        .iter()
+        .any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
+
+    let dart = "void helper() {}\nvoid main() { helper(); }\nvoid runSuite() {\n  group('suite', () {\n    test('adds', () { helper(); });\n  });\n}\n";
+    let dart_res = CodeExtractor::extract("app.dart", dart, Language::Dart).unwrap();
+    assert!(dart_res.symbols.iter().any(|s| s.name == "helper"));
+    assert!(dart_res
+        .references
+        .iter()
+        .any(|r| { r.kind == ReferenceKind::Calls && r.target_name == "helper" }));
+    assert!(dart_res
+        .references
+        .iter()
+        .any(|r| r.kind == ReferenceKind::Tests && r.target_name == "test"));
+    assert!(dart_res.symbols.iter().any(|s| s.name == "adds"));
+}

@@ -1,4 +1,5 @@
-use agent_core::{Language, RepoConfig, RepoId, SecretPattern};
+use agent_core::{Language, LiveEnvironmentInfo, RepoConfig, RepoId, SecretPattern, StoragePaths};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tempfile::tempdir;
 
@@ -40,6 +41,37 @@ fn test_secret_detection() {
     assert!(!SecretPattern::is_secret(Path::new("main.rs")));
     assert!(!SecretPattern::is_secret(Path::new("README.md")));
     assert!(!SecretPattern::is_secret(Path::new("secret_guide.md")));
+    assert!(!SecretPattern::is_secret(Path::new("secret_rotation.go")));
+    assert!(SecretPattern::is_secret(Path::new("my_private_key.bin")));
+    assert!(SecretPattern::is_secret(Path::new("secrets.json")));
+    let token = format!("ghp_{}", "a".repeat(36));
+    let redacted = SecretPattern::redact(&format!("prefix {token} suffix"));
+    assert!(!redacted.contains(&token));
+    assert!(redacted.contains("[REDACTED]"));
+}
+
+#[test]
+fn test_live_detection_ignores_user_name() {
+    let previous = std::env::var("USER").ok();
+    std::env::set_var("USER", "live");
+    let info = LiveEnvironmentInfo::detect();
+    match previous {
+        Some(value) => std::env::set_var("USER", value),
+        None => std::env::remove_var("USER"),
+    }
+    if !Path::new("/run/archiso/bootmnt").exists() && !Path::new("/run/archiso/airootfs").exists() {
+        assert!(!info.is_live);
+        assert!(!info.live_overlay_detected);
+    }
+}
+
+#[test]
+fn test_private_dir_is_mode_0700() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("private");
+    StoragePaths::ensure_private_dir(&path).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
 }
 
 #[test]

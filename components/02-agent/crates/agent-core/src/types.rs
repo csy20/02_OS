@@ -445,18 +445,60 @@ impl SecretPattern {
             }
         }
 
-        // Substring matches for suspicious filenames
-        if (file_name.contains("secret")
-            || file_name.contains("credential")
-            || file_name.contains("private_key"))
+        // Substring matches for credential filenames. Source files such as
+        // `secret_rotation.go` stay in the catalog; their bodies are redacted.
+        if !is_source_file_name(&file_name)
             && !file_name.ends_with(".md")
             && !file_name.ends_with(".txt")
+            && (file_name.contains("secret")
+                || file_name.contains("credential")
+                || file_name.contains("private_key"))
         {
             return true;
         }
 
         false
     }
+
+    /// Replace documented credential patterns with `[REDACTED]`.
+    pub fn redact(content: &str) -> String {
+        let mut redacted = content.to_string();
+        for pattern in secret_patterns() {
+            let next = pattern.replace_all(&redacted, "[REDACTED]");
+            if next != redacted {
+                redacted = next.into_owned();
+            }
+        }
+        redacted
+    }
+}
+
+fn is_source_file_name(file_name: &str) -> bool {
+    const SOURCE_EXTS: &[&str] = &[
+        "rs", "go", "py", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "js", "jsx", "ts", "tsx",
+        "dart", "java", "kt", "swift", "rb", "php", "cs", "scala", "sh", "bash", "zsh",
+    ];
+    SOURCE_EXTS
+        .iter()
+        .any(|ext| file_name.ends_with(&format!(".{ext}")))
+}
+
+fn secret_patterns() -> &'static [regex::Regex] {
+    use std::sync::OnceLock;
+    static PATTERNS: OnceLock<Vec<regex::Regex>> = OnceLock::new();
+    PATTERNS.get_or_init(|| {
+        [
+            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+            r"\bAKIA[0-9A-Z]{16}\b",
+            r"\bghp_[A-Za-z0-9_]{36}\b",
+            r"\bgithub_pat_[A-Za-z0-9_]{82}\b",
+            r"\bxox[baprs]-[0-9A-Za-z-]{10,48}",
+            r#"(?i)(api[_-]?key|secret|token)\s*[:=]\s*["'][A-Za-z0-9_\-]{20,}["']"#,
+        ]
+        .into_iter()
+        .map(|pattern| regex::Regex::new(pattern).expect("secret pattern"))
+        .collect()
+    })
 }
 
 /// Live ISO runtime detection.
@@ -471,9 +513,9 @@ impl LiveEnvironmentInfo {
     pub fn detect() -> Self {
         let has_bootmnt = Path::new("/run/archiso/bootmnt").exists();
         let has_archiso_airootfs = Path::new("/run/archiso/airootfs").exists();
-        let is_live_user = std::env::var("USER").map(|u| u == "live").unwrap_or(false);
-
-        let is_live = has_bootmnt || has_archiso_airootfs || is_live_user;
+        // The account name `live` is not evidence of the live image. sudo keeps
+        // the caller's USER, and an installed account can also be named live.
+        let is_live = has_bootmnt || has_archiso_airootfs;
 
         let details = if is_live {
             "Running inside 02_OS Live ISO session. Repository indices created in home directory are stored in volatile RAM overlayfs unless mounted from persistent media.".to_string()

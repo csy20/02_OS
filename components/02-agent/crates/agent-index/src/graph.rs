@@ -99,6 +99,31 @@ impl IndexDatabase {
         Ok(changed > 0)
     }
 
+    pub fn upsert_edge_with_payload(
+        &mut self,
+        repo_id: &str,
+        dataset_id: &str,
+        src_id: &str,
+        dst_id: &str,
+        kind: EdgeKind,
+        payload: Option<&str>,
+    ) -> Result<bool> {
+        let changed = self
+            .conn
+            .execute(
+                r#"
+                INSERT INTO graph_edges
+                    (repo_id, dataset_id, src_id, dst_id, kind, payload)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(dataset_id, src_id, dst_id, kind) DO UPDATE SET
+                    payload = excluded.payload
+                "#,
+                params![repo_id, dataset_id, src_id, dst_id, kind.as_str(), payload],
+            )
+            .map_err(|e| AgentError::Database(format!("Edge insert failed: {}", e)))?;
+        Ok(changed > 0)
+    }
+
     pub fn clear_projected_edges(&mut self, dataset_id: &str) -> Result<()> {
         self.conn
             .execute(
@@ -240,24 +265,30 @@ impl IndexDatabase {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT src_id, dst_id, kind FROM graph_edges WHERE dataset_id = ?1 ORDER BY id",
+                "SELECT src_id, dst_id, kind, payload FROM graph_edges WHERE dataset_id = ?1 ORDER BY id",
             )
             .map_err(|e| AgentError::Database(format!("Prepare edges failed: {}", e)))?;
         let rows = stmt
             .query_map(params![dataset_id], |row| {
                 let kind: String = row.get(2)?;
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, kind))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    kind,
+                    row.get::<_, Option<String>>(3)?,
+                ))
             })
             .map_err(|e| AgentError::Database(format!("Edge query failed: {}", e)))?;
         let mut edges = Vec::new();
         for row in rows {
-            let (src_id, dst_id, kind) =
+            let (src_id, dst_id, kind, payload) =
                 row.map_err(|e| AgentError::Database(format!("Edge row failed: {}", e)))?;
             if let Some(kind) = EdgeKind::parse(&kind) {
                 edges.push(GraphEdge {
                     src_id,
                     dst_id,
                     kind,
+                    payload,
                 });
             }
         }

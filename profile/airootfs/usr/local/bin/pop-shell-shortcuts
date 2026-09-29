@@ -1,0 +1,46 @@
+#!/usr/bin/env gjs
+
+imports.gi.versions.Gtk = "4.0";
+const Gtk = imports.gi.Gtk;
+const GLib = imports.gi.GLib;
+
+Gtk.init();
+
+const win = new Gtk.Window({ title: "Pop Shell Shortcuts" });
+win.set_default_size(480, 420);
+
+const box = new Gtk.Box({
+    orientation: Gtk.Orientation.VERTICAL,
+    spacing: 12,
+    margin_top: 18,
+    margin_bottom: 18,
+    margin_start: 18,
+    margin_end: 18,
+});
+
+const label = new Gtk.Label({
+    label: [
+        "Super + Y            Toggle tiling",
+        "Super + Left/Right   Tile left or right",
+        "Super + Up/Down      Tile up or down",
+        "Super + Enter        Toggle floating",
+        "Super + M            Maximize",
+        "Super + Q            Close window",
+    ].join("\n"),
+    xalign: 0,
+    wrap: true,
+});
+box.append(label);
+
+const button = new Gtk.Button({ label: "Close" });
+button.connect("clicked", () => win.close());
+box.append(button);
+win.set_child(box);
+
+const loop = GLib.MainLoop.new(null, false);
+win.connect("close-request", () => {
+    loop.quit();
+    return false;
+});
+win.present();
+loop.run();

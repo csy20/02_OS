@@ -12,7 +12,9 @@ use agent_core::{
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 pub struct IndexDatabase {
     pub(crate) conn: Connection,
@@ -52,12 +54,14 @@ impl IndexDatabase {
             "PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 5000;",
+             PRAGMA busy_timeout = 5000;
+             PRAGMA cache_size = -64000;",
         )
         .map_err(|e| AgentError::Database(format!("Pragma setup failed: {}", e)))?;
 
         let mut db = Self { conn };
         db.init_schema()?;
+        restrict_sqlite_files(db_path.as_ref());
         Ok(db)
     }
 
@@ -502,13 +506,13 @@ impl IndexDatabase {
                 r#"
                 SELECT id, name, qualified_name, kind, file_path, start_line, end_line, signature, doc_comment, fingerprint
                 FROM symbols
-                WHERE repo_id = ?1 AND (name = ?2 OR qualified_name = ?2 OR qualified_name LIKE ?3)
+                WHERE repo_id = ?1 AND (name = ?2 OR qualified_name = ?2 OR qualified_name LIKE ?3 ESCAPE '\')
                 ORDER BY file_path, start_line
                 "#,
             )
             .map_err(|e| AgentError::Database(format!("Prepare find symbol error: {}", e)))?;
 
-        let like_query = format!("%::{}", name);
+        let like_query = format!("%::{}", like_escape(name));
         let rows = stmt
             .query_map(params![repo_id.as_str(), name, like_query], |row| {
                 let kind_str: String = row.get(3)?;
@@ -547,14 +551,14 @@ impl IndexDatabase {
                 r#"
                 SELECT id, name, qualified_name, kind, file_path, start_line, end_line, signature, doc_comment, fingerprint
                 FROM symbols
-                WHERE repo_id = ?1 AND (name LIKE ?2 OR qualified_name LIKE ?2)
+                WHERE repo_id = ?1 AND (name LIKE ?2 ESCAPE '\' OR qualified_name LIKE ?2 ESCAPE '\')
                 ORDER BY file_path, start_line
                 LIMIT ?3
                 "#,
             )
             .map_err(|e| AgentError::Database(format!("Prepare search symbols error: {}", e)))?;
 
-        let like_query = format!("%{}%", term);
+        let like_query = format!("%{}%", like_escape(term));
         let rows = stmt
             .query_map(params![repo_id.as_str(), like_query, limit as i64], |row| {
                 let kind_str: String = row.get(3)?;
@@ -1002,6 +1006,17 @@ impl IndexDatabase {
             .map_err(|e| AgentError::Database(format!("Commit incremental tx error: {}", e)))?;
 
         Ok((files_updated, sym_count, files_deleted))
+    }
+}
+
+fn restrict_sqlite_files(path: &Path) {
+    let mode = fs::Permissions::from_mode(0o600);
+    let _ = fs::set_permissions(path, mode);
+    for suffix in ["-wal", "-shm"] {
+        let extra = PathBuf::from(format!("{}{suffix}", path.display()));
+        if extra.exists() {
+            let _ = fs::set_permissions(&extra, fs::Permissions::from_mode(0o600));
+        }
     }
 }
 

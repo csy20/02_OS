@@ -1,9 +1,9 @@
 use agent_core::{types::SecretPattern, Result};
 use agent_git::{GitDiscovery, GitRepo};
+use ignore::WalkBuilder;
 use serde_json::json;
 use std::env;
 use std::fs;
-use walkdir::WalkDir;
 
 pub fn execute(json_output: bool) -> Result<()> {
     let current_dir = env::current_dir()?;
@@ -18,13 +18,22 @@ pub fn execute(json_output: bool) -> Result<()> {
     // Check .gitignore existence
     let has_gitignore = repo_root.join(".gitignore").exists();
 
-    for entry in WalkDir::new(&repo_root).into_iter().filter_map(|e| e.ok()) {
+    let mut builder = WalkBuilder::new(&repo_root);
+    builder.hidden(false);
+    builder.git_ignore(true);
+    builder.git_global(true);
+    builder.git_exclude(true);
+    let agent_ignore = repo_root.join(".02agentignore");
+    if agent_ignore.exists() {
+        builder.add_custom_ignore_filename(".02agentignore");
+    }
+
+    for entry in builder.build().filter_map(|entry| entry.ok()) {
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
 
-        // Skip .git internal directory
         if path.components().any(|c| c.as_os_str() == ".git") {
             continue;
         }
@@ -54,6 +63,11 @@ pub fn execute(json_output: bool) -> Result<()> {
         }
     }
 
+    let untracked_secrets: Vec<String> = secrets_detected
+        .iter()
+        .filter(|path| !tracked_secrets.contains(path))
+        .cloned()
+        .collect();
     let is_secure = tracked_secrets.is_empty() && loose_permissions.is_empty();
 
     if json_output {
@@ -62,6 +76,7 @@ pub fn execute(json_output: bool) -> Result<()> {
             "has_gitignore": has_gitignore,
             "detected_sensitive_files": secrets_detected,
             "tracked_secrets_critical": tracked_secrets,
+            "untracked_sensitive_files": untracked_secrets,
             "world_writable_files": loose_permissions,
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
@@ -89,10 +104,10 @@ pub fn execute(json_output: bool) -> Result<()> {
             println!("  • Tracked Secrets in Git: None (Clean)");
         }
 
-        if !secrets_detected.is_empty() {
+        if !untracked_secrets.is_empty() {
             println!();
             println!("  • Untracked Local Sensitive Files Excluded from Index:");
-            for f in &secrets_detected {
+            for f in &untracked_secrets {
                 println!("    - {} (Excluded by 02 Agent Runtime filter)", f);
             }
         }

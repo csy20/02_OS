@@ -20,6 +20,9 @@ fn test_socket_bind_and_permissions() {
     // Test client connect
     let mut client = UnixStream::connect(&sock_path).unwrap();
     let (mut server_stream, _) = listener.accept().unwrap();
+    let peer = DaemonSocket::peer_uid(&server_stream).unwrap();
+    assert_eq!(peer, DaemonSocket::current_uid());
+    assert!(DaemonSocket::accepts_peer(&server_stream));
 
     // Client writes message
     writeln!(

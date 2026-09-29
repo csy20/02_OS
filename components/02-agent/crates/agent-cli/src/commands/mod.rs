@@ -4,6 +4,7 @@ pub mod connect;
 pub mod context;
 pub mod deps;
 pub mod doctor;
+pub mod gc;
 pub mod graph;
 pub mod index;
 pub mod init;

@@ -216,3 +216,27 @@ fn test_connect_targets_and_repo_path_schema() {
         .iter()
         .all(|tool| { tool.input_schema["properties"]["repo_path"]["type"] == "string" }));
 }
+
+#[test]
+fn test_merge_config_text_rejects_non_objects() {
+    let array = AgentConnector::merge_config_text(&AgentTarget::Codex, "[]");
+    assert!(array.is_err());
+    let list = AgentConnector::merge_config_text(&AgentTarget::Codex, r#"{"mcpServers":[]}"#);
+    assert!(list.is_err());
+    let invalid = AgentConnector::merge_config_text(&AgentTarget::Codex, "{");
+    assert!(invalid.is_err());
+
+    let merged = AgentConnector::merge_config_text(
+        &AgentTarget::Codex,
+        r#"{"mcpServers":{"other":{"command":"keep"}}}"#,
+    )
+    .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
+    assert_eq!(value["mcpServers"]["02"]["command"], "02");
+    assert_eq!(value["mcpServers"]["other"]["command"], "keep");
+
+    let zed =
+        AgentConnector::merge_config_text(&AgentTarget::Zed, r#"{"context_servers":{}}"#).unwrap();
+    let zed_value: serde_json::Value = serde_json::from_str(&zed).unwrap();
+    assert_eq!(zed_value["context_servers"]["02"]["command"], "02");
+}

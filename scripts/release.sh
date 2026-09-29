@@ -11,15 +11,48 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROFILE_DIR="${REPO_ROOT}/profile"
 OUT_DIR="${REPO_ROOT}/out"
 
-EXISTING_ISO="$(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" 2>/dev/null | head -n 1 || true)"
+REUSE_ISO=0
+FORCE_TAG=0
+for arg in "$@"; do
+    case "${arg}" in
+        --reuse-iso) REUSE_ISO=1 ;;
+        --force-tag) FORCE_TAG=1 ;;
+        --force-rebuild) ;;
+        *)
+            echo "ERROR: unknown argument ${arg} (expected --reuse-iso, --force-tag, or --force-rebuild)" >&2
+            exit 1
+            ;;
+    esac
+done
 
-if [[ -n "${EXISTING_ISO}" && -f "${EXISTING_ISO}" && "${1:-}" != "--force-rebuild" ]]; then
-    echo "Found existing ISO at ${EXISTING_ISO}. Skipping build step."
-    ISO_PATH="${EXISTING_ISO}"
+if [[ "${REUSE_ISO}" -eq 1 ]]; then
+    if [[ ! -d "${OUT_DIR}" ]]; then
+        echo "ERROR: --reuse-iso requires ${OUT_DIR}" >&2
+        exit 1
+    fi
+    mapfile -t ISO_CANDIDATES < <(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" -print | sort)
+    if [[ "${#ISO_CANDIDATES[@]}" -ne 1 ]]; then
+        echo "ERROR: --reuse-iso needs exactly one 02_OS-*.iso in ${OUT_DIR} (found ${#ISO_CANDIDATES[@]})" >&2
+        exit 1
+    fi
+    ISO_PATH="${ISO_CANDIDATES[0]}"
+    HEAD_NOW="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+    STAMP_FILE="${ISO_PATH}.commit"
+    if [[ ! -f "${STAMP_FILE}" || "$(cat "${STAMP_FILE}")" != "${HEAD_NOW}" ]]; then
+        echo "ERROR: ${STAMP_FILE} does not match HEAD ${HEAD_NOW}" >&2
+        exit 1
+    fi
+    echo "Reusing ISO ${ISO_PATH} built from ${HEAD_NOW}."
 else
     echo "=== [Step 1/5] Building 02_OS Live ISO ==="
     "${REPO_ROOT}/build.sh"
-    ISO_PATH="$(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" | head -n 1)"
+    mapfile -t ISO_CANDIDATES < <(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" -print | sort)
+    if [[ "${#ISO_CANDIDATES[@]}" -ne 1 ]]; then
+        echo "ERROR: expected exactly one 02_OS-*.iso in ${OUT_DIR} (found ${#ISO_CANDIDATES[@]})" >&2
+        exit 1
+    fi
+    ISO_PATH="${ISO_CANDIDATES[0]}"
+    git -C "${REPO_ROOT}" rev-parse HEAD > "${ISO_PATH}.commit"
 fi
 
 if [[ -z "${ISO_PATH:-}" || ! -f "${ISO_PATH}" ]]; then
@@ -62,13 +95,29 @@ ls -lh "${OUT_DIR}"
 # Step 3: Git Tag
 echo "=== [Step 3/5] Creating and Pushing Git Tag ${TAG_NAME} ==="
 cd "${REPO_ROOT}"
-if git rev-parse "${TAG_NAME}" >/dev/null 2>&1; then
-    echo "Tag ${TAG_NAME} already exists locally, replacing..."
+REMOTE_TAG="$(git ls-remote origin "refs/tags/${TAG_NAME}")"
+if [[ -n "${REMOTE_TAG}" ]]; then
+    echo "Remote tag ${TAG_NAME} already exists:"
+    echo "${REMOTE_TAG}"
+    if [[ "${FORCE_TAG}" -ne 1 ]]; then
+        echo "ERROR: refusing to replace ${TAG_NAME}. Pass --force-tag to overwrite it." >&2
+        exit 1
+    fi
+fi
+if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+    if [[ "${FORCE_TAG}" -ne 1 ]]; then
+        echo "ERROR: local tag ${TAG_NAME} already exists. Pass --force-tag to replace it." >&2
+        exit 1
+    fi
     git tag -d "${TAG_NAME}"
 fi
 
 git tag -a "${TAG_NAME}" -m "Release ${RELEASE_TITLE}"
-git push origin "${TAG_NAME}" --force
+if [[ "${FORCE_TAG}" -eq 1 && -n "${REMOTE_TAG}" ]]; then
+    git push origin "${TAG_NAME}" --force
+else
+    git push origin "${TAG_NAME}"
+fi
 
 # Step 4: Prepare Release Notes
 echo "=== [Step 4/5] Preparing Release Notes ==="
@@ -88,7 +137,7 @@ This release introduces the **02 Agent Runtime** — an operating-system-level r
   - **Tree-sitter AST Evidence Graph**: Multi-language symbol parsing (Rust, Python, C/C++, Bash, JS/TS) with callers, callees, imports, and tests.
   - **Architectural Memory**: Git-anchored verified facts with automated confidence degradation.
   - **Token Budget Context Compiler**: Compiles high-density evidence packages tailored to LLM context windows (\`02 context "<task>" --budget 8000\`).
-  - **Standard MCP Server**: Vendor-neutral JSON-RPC 2.0 interface supporting 12 agent tools (\`02 mcp\`, \`02 connect\`).
+  - **Standard MCP Server**: Vendor-neutral JSON-RPC 2.0 interface supporting 15 agent tools (\`02 mcp\`, \`02 connect\`).
   - **Pre-installed Background User Daemon**: \`02-agentd\` enabled via \`systemd --user\`.
 - **Refined GNOME Desktop**:
   - GNOME Shell 50 + Pop Shell window tiling (\`Super+Y\`).

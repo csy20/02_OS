@@ -19,8 +19,8 @@ if [[ -d /etc/polkit-1/rules.d ]]; then
   chmod 644 /etc/polkit-1/rules.d/* 2>/dev/null || true
 fi
 
-echo "==> Unlocking blank root password for live environment..."
-passwd -d root 2>/dev/null || true
+echo "==> Locking the root account for the live environment..."
+passwd -l root 2>/dev/null || true
 
 echo "==> Uncommenting HTTPS mirrors in /etc/pacman.d/mirrorlist..."
 if [[ -f /etc/pacman.d/mirrorlist ]]; then

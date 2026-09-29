@@ -18,6 +18,9 @@ impl MemoryVerifier {
         db: &IndexDatabase,
     ) -> Result<EvidenceMemory> {
         let mut verified = memory.clone();
+        if memory.status == MemoryStatus::Invalidated {
+            return Ok(verified);
+        }
         let root = repo_root.as_ref();
 
         let mut all_files_exist = true;

@@ -24,4 +24,30 @@ systemctl --user import-environment \
   XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE 2>/dev/null || true
 dbus-update-activation-environment --systemd --all 2>/dev/null || true
 
-exec /usr/bin/gnome-session
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+log_file="${runtime_dir}/02os-gnome-session.log"
+count_file="${runtime_dir}/02os-gnome-session.failures"
+umask 022
+touch "${log_file}"
+chmod 644 "${log_file}" 2>/dev/null || true
+
+failures=0
+if [[ -f "${count_file}" ]]; then
+  failures="$(tr -cd '0-9' < "${count_file}")"
+  failures="${failures:-0}"
+fi
+if [[ "${failures}" -ge 3 ]]; then
+  echo 0 > "${count_file}"
+  echo "$(date -Is) falling back to agreety after ${failures} gnome-session failures" >> "${log_file}"
+  exec agreety --cmd /usr/local/bin/02os-gnome-session
+fi
+
+/usr/bin/gnome-session
+status=$?
+echo "$(date -Is) gnome-session exited ${status}" >> "${log_file}"
+if [[ "${status}" -eq 0 ]]; then
+  echo 0 > "${count_file}"
+else
+  echo $((failures + 1)) > "${count_file}"
+fi
+exit "${status}"

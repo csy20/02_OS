@@ -278,4 +278,6 @@ pub struct GraphEdge {
     pub src_id: String,
     pub dst_id: String,
     pub kind: EdgeKind,
+    #[serde(default)]
+    pub payload: Option<String>,
 }

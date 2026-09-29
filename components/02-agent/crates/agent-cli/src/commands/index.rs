@@ -1,6 +1,6 @@
-use agent_core::{paths::StoragePaths, Result, SourceKind};
+use agent_core::{paths::StoragePaths, Result};
 use agent_git::GitDiscovery;
-use agent_memory::{add_pipeline, cognify_pipeline, AddRequest, RepoHandle, TaskRegistry};
+use agent_memory::{index_pipeline, RepoHandle, TaskRegistry};
 use serde_json::json;
 use std::env;
 use std::time::Instant;
@@ -20,17 +20,7 @@ pub fn execute(full: bool, json_output: bool) -> Result<()> {
 
     let mut handle = RepoHandle::open(&repo_root)?;
     let registry = TaskRegistry::new();
-    let added = add_pipeline(
-        &mut handle,
-        &AddRequest {
-            sources: vec![SourceKind::Worktree, SourceKind::Document],
-            dataset_name: None,
-            text: None,
-            full,
-        },
-        &registry,
-    )?;
-    let _cognified = cognify_pipeline(&mut handle, full, None, &registry)?;
+    let added = index_pipeline(&mut handle, full, &registry)?;
 
     let store = agent_memory::MemoryStore::for_repo(&handle.info.id)?;
     let staleness_report = agent_memory::StalenessEngine::evaluate(

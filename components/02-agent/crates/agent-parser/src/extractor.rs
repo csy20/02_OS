@@ -18,14 +18,37 @@ impl CodeExtractor {
         let mut result = match language {
             Language::Rust => Self::extract_rust(file_path, content)?,
             Language::Python => Self::extract_python(file_path, content)?,
-            Language::C | Language::Cpp => Self::extract_c_cpp(file_path, content)?,
+            Language::C => Self::extract_c_cpp(file_path, content)?,
+            Language::Cpp => Self::extract_grammar(file_path, content, crate::grammar::Kind::Cpp)?,
             Language::Bash => Self::extract_bash(file_path, content)?,
-            Language::JavaScript | Language::TypeScript => Self::extract_js_ts(file_path, content)?,
-            Language::Dart => Self::extract_dart(file_path, content)?,
+            Language::JavaScript => Self::extract_js_ts(file_path, content)?,
+            Language::TypeScript => {
+                let kind = if file_path.ends_with(".tsx") {
+                    crate::grammar::Kind::Tsx
+                } else {
+                    crate::grammar::Kind::TypeScript
+                };
+                Self::extract_grammar(file_path, content, kind)?
+            }
+            Language::Dart => {
+                Self::extract_grammar(file_path, content, crate::grammar::Kind::Dart)?
+            }
+            Language::Go => Self::extract_grammar(file_path, content, crate::grammar::Kind::Go)?,
             _ => Self::extract_fallback(file_path, content)?,
         };
         Self::retarget_test_references(&mut result.references);
         Ok(result)
+    }
+
+    fn extract_grammar(
+        file_path: &str,
+        content: &str,
+        kind: crate::grammar::Kind,
+    ) -> Result<ExtractionResult> {
+        match crate::grammar::extract(file_path, content, kind) {
+            Some(result) => Ok(result),
+            None => Self::extract_fallback(file_path, content),
+        }
     }
 
     fn symbol_fingerprint(text: &str) -> String {
@@ -738,80 +761,6 @@ impl CodeExtractor {
                 active_symbol,
             );
         }
-    }
-
-    // -------------------------------------------------------------
-    // DART & HEURISTIC FALLBACK
-    // -------------------------------------------------------------
-    fn extract_dart(file_path: &str, content: &str) -> Result<ExtractionResult> {
-        let mut symbols = Vec::new();
-        let mut references = Vec::new();
-
-        let class_re = Regex::new(r"class\s+([A-Za-z0-9_]+)").unwrap();
-        let func_re =
-            Regex::new(r"(?:[A-Za-z0-9_<>]+)\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*\{").unwrap();
-        let call_re = Regex::new(r"([A-Za-z0-9_]+)\s*\(").unwrap();
-
-        for (idx, line) in content.lines().enumerate() {
-            let line_num = idx + 1;
-            if let Some(caps) = class_re.captures(line) {
-                if let Some(m) = caps.get(1) {
-                    let name = m.as_str();
-                    symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, line_num),
-                        name: name.to_string(),
-                        qualified_name: format!("{}::{}", file_path, name),
-                        kind: SymbolKind::Class,
-                        file_path: file_path.to_string(),
-                        start_line: line_num,
-                        end_line: line_num,
-                        signature: Some(line.trim().to_string()),
-                        doc_comment: None,
-                        fingerprint: Self::symbol_fingerprint(line),
-                    });
-                }
-            } else if let Some(caps) = func_re.captures(line) {
-                if let Some(m) = caps.get(1) {
-                    let name = m.as_str();
-                    if name != "if" && name != "while" && name != "for" && name != "switch" {
-                        symbols.push(Symbol {
-                            id: format!("{}::{}::{}", file_path, name, line_num),
-                            name: name.to_string(),
-                            qualified_name: format!("{}::{}", file_path, name),
-                            kind: SymbolKind::Function,
-                            file_path: file_path.to_string(),
-                            start_line: line_num,
-                            end_line: line_num,
-                            signature: Some(line.trim().to_string()),
-                            doc_comment: None,
-                            fingerprint: Self::symbol_fingerprint(line),
-                        });
-                    }
-                }
-            }
-
-            for caps in call_re.captures_iter(line) {
-                if let Some(m) = caps.get(1) {
-                    let name = m.as_str();
-                    let skip = ["if", "for", "while", "switch", "catch", "print"];
-                    if !skip.contains(&name) {
-                        references.push(SymbolReference {
-                            source_file: file_path.to_string(),
-                            source_symbol_name: None,
-                            target_name: name.to_string(),
-                            target_symbol_id: None,
-                            kind: ReferenceKind::Calls,
-                            line_number: line_num,
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(ExtractionResult {
-            symbols,
-            references,
-        })
     }
 
     fn extract_fallback(file_path: &str, content: &str) -> Result<ExtractionResult> {
