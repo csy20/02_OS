@@ -91,6 +91,7 @@ impl IndexDatabase {
             .map_err(|e| AgentError::Database(format!("Schema initialization failed: {}", e)))?;
         tx.execute_batch(SCHEMA_V2_SQL)
             .map_err(|e| AgentError::Database(format!("Schema v2 initialization failed: {}", e)))?;
+        crate::graph::migrate_unscoped_commit_nodes(&tx)?;
 
         let version: Option<i32> = tx
             .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {

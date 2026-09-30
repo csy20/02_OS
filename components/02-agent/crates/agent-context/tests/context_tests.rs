@@ -259,3 +259,117 @@ fn test_context_budget_ignores_files_past_the_return_cap() {
         snippet_tokens
     );
 }
+
+#[test]
+fn context_redacts_secrets_and_obeys_a_tight_budget() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    let sig = git2::Signature::now("Engineer", "dev@02os.org").unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    let token = format!("ghp_{}", "a".repeat(36));
+    let mut body = format!("pub fn leaky() {{ let secret = \"{token}\"; }}\n");
+    body.push_str(&"x".repeat(20_000));
+    body.push('\n');
+    fs::write(root.join("src/leaky.rs"), &body).unwrap();
+    let mut index = repo.index().unwrap();
+    index
+        .add_path(std::path::Path::new("src/leaky.rs"))
+        .unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "leak", &tree, &[])
+        .unwrap();
+
+    let repo_id = RepoId::from_path(root);
+    let mut db =
+        IndexDatabase::open(agent_core::paths::StoragePaths::repo_db_path(&repo_id).unwrap())
+            .unwrap();
+    db.update_repo_info(&RepoInfo {
+        id: repo_id.clone(),
+        name: "redact".into(),
+        root_path: root.to_path_buf(),
+        head_commit: Some("abc".into()),
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    let scanned = RepoScanner::new(root, RepoConfig::default()).scan();
+    assert!(scanned.iter().all(|item| {
+        item.content
+            .as_deref()
+            .map(|text| !text.contains(&token))
+            .unwrap_or(true)
+    }));
+    db.save_scanned_files(&repo_id, &scanned).unwrap();
+    let mut symbols = Vec::new();
+    let mut references = Vec::new();
+    for item in &scanned {
+        if let Some(text) = &item.content {
+            if let Ok(extracted) = agent_parser::CodeExtractor::extract(
+                &item.file.relative_path,
+                text,
+                item.file.language,
+            ) {
+                symbols.extend(extracted.symbols);
+                references.extend(extracted.references);
+            }
+        }
+    }
+    db.save_symbols_and_references(&repo_id, &symbols, &references)
+        .unwrap();
+
+    let store = MemoryStore::for_repo(&repo_id).unwrap();
+    store
+        .save(&EvidenceMemory {
+            id: "mem_invalid".into(),
+            claim: "leaky token was rotated".into(),
+            kind: MemoryKind::ArchitecturalFact,
+            evidence: vec![EvidenceItem {
+                file: "/etc/passwd".into(),
+                symbols: vec![],
+                commit: "abc".into(),
+                fingerprint: None,
+            }],
+            valid_at: "abc".into(),
+            confidence: 0.0,
+            status: MemoryStatus::Invalidated,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+
+    let empty = ContextCompiler::compile(root, "leaky", 0).unwrap();
+    assert_eq!(empty.budget.returned_tokens, 0);
+    assert!(empty
+        .relevant_files
+        .iter()
+        .all(|file| file.snippet.is_none()));
+    assert!(empty.to_markdown().is_empty());
+
+    let package = ContextCompiler::compile(root, "leaky", 200).unwrap();
+    assert!(package.budget.returned_tokens <= 200);
+    let markdown = package.to_markdown();
+    assert!(!markdown.contains(&token));
+    assert!(package.relevant_files.iter().all(|file| {
+        file.snippet
+            .as_deref()
+            .map(|text| text.len() < 2000)
+            .unwrap_or(true)
+    }));
+    assert!(!package
+        .relevant_files
+        .iter()
+        .any(|file| file.relative_path == "/etc/passwd"));
+
+    let wide = ContextCompiler::compile(root, "leaky", 4000).unwrap();
+    assert!(wide.verified_memories.is_empty());
+    assert!(wide
+        .diagnostic_memories
+        .iter()
+        .any(|memory| memory.id == "mem_invalid"));
+    assert!(wide.to_markdown().contains("not verified"));
+    assert!(!wide.to_markdown().contains(&token));
+}

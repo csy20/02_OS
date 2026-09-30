@@ -116,7 +116,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 - **Build-Time Schema Compilation**: GLib schemas and dconf databases are precompiled during ISO build, saving boot time and RAM overlayfs space.
 - **Clean User Management**: System users (`greeter`, `polkitd`, `dbus`) preserved via Arch packages and `sysusers.d`.
 - **Deduplicated Skeleton**: Unified dotfiles in `/etc/skel` as the single source of truth.
-- **Agent Native Pre-Staging**: `02` (alias `02agent`) and `02-agentd` binaries compiled in Rust, stripped, and integrated with systemd user session.
+- **Agent runtime staging**: run `scripts/build-agent-runtime.sh` before any `mkarchiso`. It compiles `02` (alias `02agent`) and `02-agentd`, strips them, and stages them into the overlay. Those binaries are not committed.
 - **zstd** squashfs + initramfs (faster decompression and boot).
 - **zram** swap with tuned swappiness.
 
@@ -158,7 +158,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 │       ├── etc/systemd/user/  # Enabled user services (02-agentd.service)
 │       ├── etc/sysusers.d/    # Declarative live user creation
 │       ├── root/              # Build-time customization script
-│       ├── usr/bin/           # Pre-staged 02 (with 02agent symlink) & 02-agentd
+│       ├── usr/bin/           # Staged by scripts/build-agent-runtime.sh before mkarchiso
 │       ├── usr/lib/systemd/user/ # 02-agentd systemd service definition
 │       └── usr/share/icons/02-OS/ # Glassmorphic vector icon theme
 ├── scripts/
@@ -177,15 +177,19 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 
 Manual Docker build:
 
+Run `scripts/build-agent-runtime.sh` before any `mkarchiso`. That stages `02`, the `02agent` symlink, and `02-agentd`. Do not image whatever bytes happen to already be under `profile/airootfs/usr/bin`.
+
 ```bash
+scripts/build-agent-runtime.sh
+
 docker run --rm -it --privileged \
-  -v $(pwd)/profile:/02_OS \
-  -v $(pwd)/out:/out \
+  -v "$(pwd)/profile:/02_OS" \
+  -v "$(pwd)/out:/out" \
   -v /tmp/archiso-tmp:/tmp/archiso-tmp \
   archlinux:latest bash
 ```
 
-Inside the container:
+Inside the container, after the runtime has been staged on the host:
 
 ```bash
 pacman -Sy --noconfirm archiso
@@ -208,9 +212,9 @@ Accelerated rendering in QEMU:
 
 ## Install
 
-From the live desktop: run `sudo archinstall` from terminal or Settings.
+From the live desktop, launch **Install 02_OS** (which runs the provisioner). Choose the GNOME desktop profile.
 
-`archinstall` will guide you through partitioning, username creation, and bootloader configuration.
+The installer guides you through partitioning, username creation, and bootloader configuration.
 
 ---
 

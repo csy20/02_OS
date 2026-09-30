@@ -180,3 +180,101 @@ fn test_invalidated_memory_is_not_revived() {
     assert_eq!(stored.status, MemoryStatus::Invalidated);
     assert_eq!(stored.confidence, 0.25);
 }
+
+#[test]
+fn deleting_a_function_marks_its_memory_stale_after_reindex() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    let sig = git2::Signature::now("Tester", "test@02os.org").unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    let source = root.join("src/auth.rs");
+    fs::write(
+        &source,
+        "pub fn rotate_refresh_token() -> bool { true }\npub fn keep_session() {}\n",
+    )
+    .unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("src/auth.rs")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let commit_id = repo
+        .commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+        .unwrap();
+
+    let repo_id = RepoId::from_path(root);
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    db.update_repo_info(&agent_core::types::RepoInfo {
+        id: repo_id.clone(),
+        name: "staleness_removed".into(),
+        root_path: root.to_path_buf(),
+        head_commit: Some(commit_id.to_string()),
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    let make = |id: &str, symbol: &str| EvidenceMemory {
+        id: id.into(),
+        claim: format!("{symbol} exists"),
+        kind: MemoryKind::ArchitecturalFact,
+        evidence: vec![EvidenceItem {
+            file: "src/auth.rs".into(),
+            symbols: vec![symbol.into()],
+            commit: commit_id.to_string(),
+            fingerprint: None,
+        }],
+        valid_at: commit_id.to_string(),
+        confidence: 1.0,
+        status: MemoryStatus::Fresh,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    store
+        .save(&make("mem_rotate", "rotate_refresh_token"))
+        .unwrap();
+    store.save(&make("mem_keep", "keep_session")).unwrap();
+
+    fs::write(&source, "pub fn keep_session() {}\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("src/auth.rs")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let parent = repo.find_commit(commit_id).unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "drop rotate", &tree, &[&parent])
+        .unwrap();
+
+    let scanned = RepoScanner::new(root, RepoConfig::default()).scan();
+    db.save_scanned_files(&repo_id, &scanned).unwrap();
+    let mut symbols = Vec::new();
+    let mut references = Vec::new();
+    for item in &scanned {
+        if let Some(text) = &item.content {
+            let extracted = agent_parser::CodeExtractor::extract(
+                &item.file.relative_path,
+                text,
+                item.file.language,
+            )
+            .unwrap();
+            symbols.extend(extracted.symbols);
+            references.extend(extracted.references);
+        }
+    }
+    db.save_symbols_and_references(&repo_id, &symbols, &references)
+        .unwrap();
+
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert_eq!(
+        store.get("mem_rotate").unwrap().unwrap().status,
+        MemoryStatus::Stale
+    );
+    assert_eq!(
+        store.get("mem_keep").unwrap().unwrap().status,
+        MemoryStatus::Fresh
+    );
+    assert_eq!(report.fresh_count, 1);
+    assert_eq!(report.stale_count, 1);
+}

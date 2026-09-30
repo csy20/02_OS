@@ -6,12 +6,17 @@ use crate::{
         ScoredSymbol, ScoredTest,
     },
 };
-use agent_core::{paths::StoragePaths, AgentError, Result};
+use agent_core::{
+    config::RepoConfig,
+    contain::{read_indexed_bytes, validate_evidence_file},
+    paths::StoragePaths,
+    types::{MemoryStatus, SecretPattern},
+    AgentError, Result,
+};
 use agent_git::GitRepo;
 use agent_index::IndexDatabase;
 use agent_memory::{MemoryStore, StalenessEngine};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 
 pub struct ContextCompiler;
@@ -23,7 +28,11 @@ impl ContextCompiler {
         task: &str,
         token_budget: usize,
     ) -> Result<EvidencePackage> {
+        if token_budget == 0 {
+            return Ok(empty_package(task));
+        }
         let root = repo_root.as_ref();
+        let max_bytes = RepoConfig::load_or_default(root).max_file_size_kb * 1024;
         let git_repo = GitRepo::open(root)?;
         let repo_info = git_repo.info()?;
         let repo_id = &repo_info.id;
@@ -200,7 +209,11 @@ impl ContextCompiler {
         // Signal F: Prior verified memories
         let memories = store.load_all().unwrap_or_default();
         let mut relevant_memories = Vec::new();
+        let mut diagnostic_memories = Vec::new();
         for mem in memories {
+            if estimate_tokens(&mem.claim) > token_budget {
+                continue;
+            }
             let mut matched = false;
             let claim_lower = mem.claim.to_lowercase();
             for term in &keywords.terms {
@@ -222,9 +235,15 @@ impl ContextCompiler {
                     }
                 }
             }
-            if matched {
-                // Boost files mentioned in evidence
+            if !matched {
+                continue;
+            }
+            let fresh = mem.status == MemoryStatus::Fresh && mem.confidence > 0.0;
+            if fresh {
                 for ev in &mem.evidence {
+                    if validate_evidence_file(root, Path::new(&ev.file), max_bytes).is_err() {
+                        continue;
+                    }
                     let entry = file_scores
                         .entry(ev.file.clone())
                         .or_insert((0.0, Vec::new()));
@@ -232,6 +251,8 @@ impl ContextCompiler {
                     entry.1.push(format!("supported by memory '{}'", mem.id));
                 }
                 relevant_memories.push(mem);
+            } else {
+                diagnostic_memories.push(mem);
             }
         }
 
@@ -291,7 +312,10 @@ impl ContextCompiler {
             }
 
             let full_path = root.join(&path);
-            let content_opt = fs::read_to_string(&full_path).ok();
+            let content_opt = read_indexed_bytes(root, &full_path, max_bytes)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .map(|text| SecretPattern::redact(&text));
 
             if let Some(ref content) = content_opt {
                 let file_tokens = estimate_tokens(content);
@@ -335,6 +359,11 @@ impl ContextCompiler {
         }
 
         candidate_symbols.truncate(12);
+        for scored in &mut candidate_symbols {
+            if let Some(signature) = scored.symbol.signature.as_mut() {
+                *signature = bound_text(&SecretPattern::redact(signature), 64);
+            }
+        }
         candidate_deps.truncate(10);
         candidate_tests.truncate(8);
 
@@ -353,7 +382,7 @@ impl ContextCompiler {
             returned_files: returned_files.len(),
         };
 
-        Ok(EvidencePackage {
+        let mut package = EvidencePackage {
             task: task.to_string(),
             repo_id: repo_id.to_string(),
             staleness: staleness_str,
@@ -362,10 +391,117 @@ impl ContextCompiler {
             relevant_tests: candidate_tests,
             dependencies: candidate_deps,
             verified_memories: relevant_memories,
+            diagnostic_memories,
             git_context: git_summary,
             budget: budget_report,
-        })
+        };
+        enforce_budget(&mut package);
+        Ok(package)
     }
+}
+
+fn empty_package(task: &str) -> EvidencePackage {
+    EvidencePackage {
+        task: task.to_string(),
+        repo_id: String::new(),
+        staleness: String::new(),
+        relevant_files: Vec::new(),
+        relevant_symbols: Vec::new(),
+        relevant_tests: Vec::new(),
+        dependencies: Vec::new(),
+        verified_memories: Vec::new(),
+        diagnostic_memories: Vec::new(),
+        git_context: GitContextSummary {
+            head_commit: None,
+            branch: None,
+            modified_files: Vec::new(),
+            recent_commits: Vec::new(),
+        },
+        budget: BudgetReport {
+            candidate_tokens: 0,
+            returned_tokens: 0,
+            budget_limit: 0,
+            candidate_files: 0,
+            returned_files: 0,
+        },
+    }
+}
+
+fn bound_text(text: &str, max_tokens: usize) -> String {
+    let max_chars = max_tokens.saturating_mul(4);
+    let mut end = text.len().min(max_chars);
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
+}
+
+fn enforce_budget(package: &mut EvidencePackage) {
+    if package.budget.budget_limit == 0 {
+        package.relevant_files.clear();
+        package.relevant_symbols.clear();
+        package.relevant_tests.clear();
+        package.dependencies.clear();
+        package.verified_memories.clear();
+        package.diagnostic_memories.clear();
+        package.git_context.recent_commits.clear();
+        package.budget.returned_tokens = 0;
+        package.budget.returned_files = 0;
+        return;
+    }
+    for _ in 0..4096 {
+        package.budget.returned_tokens = 0;
+        let provisional = estimate_tokens(&package.to_markdown());
+        package.budget.returned_tokens = provisional;
+        let tokens = estimate_tokens(&package.to_markdown());
+        if tokens <= package.budget.budget_limit {
+            package.budget.returned_tokens = tokens;
+            return;
+        }
+        if !drop_budget_item(package) {
+            package.budget.returned_tokens = estimate_tokens(&package.to_markdown());
+            return;
+        }
+    }
+}
+
+fn drop_budget_item(package: &mut EvidencePackage) -> bool {
+    if let Some(file) = package
+        .relevant_files
+        .iter_mut()
+        .rev()
+        .find(|file| file.snippet.is_some())
+    {
+        file.snippet = None;
+        return true;
+    }
+    if package.git_context.recent_commits.pop().is_some() {
+        return true;
+    }
+    if package.dependencies.pop().is_some() {
+        return true;
+    }
+    if package.diagnostic_memories.pop().is_some() {
+        return true;
+    }
+    if package.verified_memories.pop().is_some() {
+        return true;
+    }
+    if package.relevant_symbols.pop().is_some() {
+        return true;
+    }
+    if package.relevant_tests.pop().is_some() {
+        return true;
+    }
+    if package.relevant_files.pop().is_some() {
+        package.budget.returned_files = package.relevant_files.len();
+        return true;
+    }
+    if !package.git_context.modified_files.is_empty() {
+        package.git_context.modified_files.clear();
+        return true;
+    }
+    false
 }
 
 /// Extract focused window around line numbers, respecting remaining token allowance.
@@ -401,18 +537,37 @@ fn extract_excerpt(content: &str, target_lines: &[usize], max_tokens: usize) -> 
     let mut last_line = 0;
 
     for &num in &line_nums {
-        if last_line != 0 && num > last_line + 1 {
-            result.push_str("    ...\n");
-        }
-        if num <= lines.len() {
-            result.push_str(&format!("{:4}: {}\n", num, lines[num - 1]));
-        }
-        last_line = num;
         if estimate_tokens(&result) >= max_tokens {
-            result.push_str("    ... [budget limit reached]\n");
             break;
         }
+        if last_line != 0
+            && num > last_line + 1
+            && !push_bounded(&mut result, "    ...\n", max_tokens)
+        {
+            break;
+        }
+        if num <= lines.len() {
+            let rendered = format!("{:4}: {}\n", num, lines[num - 1]);
+            if !push_bounded(&mut result, &rendered, max_tokens) {
+                break;
+            }
+        }
+        last_line = num;
     }
 
     result
+}
+
+fn push_bounded(out: &mut String, text: &str, max_tokens: usize) -> bool {
+    let used = estimate_tokens(out);
+    if used >= max_tokens {
+        return false;
+    }
+    let room = max_tokens - used;
+    let piece = bound_text(text, room);
+    if piece.is_empty() {
+        return false;
+    }
+    out.push_str(&piece);
+    true
 }

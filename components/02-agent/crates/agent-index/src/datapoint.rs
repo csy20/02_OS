@@ -93,6 +93,57 @@ impl IndexDatabase {
             .map(|(_, version)| *version as u32 + 1)
             .unwrap_or(1);
         let now = Utc::now().to_rfc3339();
+        let already_stored: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT version FROM datapoints WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .ok();
+        if already_stored.is_some() {
+            // A → B → A reuses the original content row and makes it the latest version.
+            self.conn
+                .execute(
+                    r#"
+                    UPDATE datapoints SET
+                        version = ?1,
+                        repo_id = ?2,
+                        dataset_id = ?3,
+                        kind = ?4,
+                        source_kind = ?5,
+                        commit_id = ?6,
+                        path = ?7,
+                        start_byte = ?8,
+                        end_byte = ?9,
+                        symbol_fingerprint = ?10,
+                        confidence = ?11,
+                        updated_at = ?12
+                    WHERE id = ?13
+                    "#,
+                    params![
+                        version as i64,
+                        point.repo_id.as_str(),
+                        point.dataset_id,
+                        point.kind,
+                        point.provenance.source_kind.as_str(),
+                        point.provenance.commit_id,
+                        point.path,
+                        point.provenance.start_byte.map(|value| value as i64),
+                        point.provenance.end_byte.map(|value| value as i64),
+                        point.provenance.symbol_fingerprint,
+                        point.confidence,
+                        now,
+                        id
+                    ],
+                )
+                .map_err(|e| AgentError::Database(format!("Datapoint revive failed: {}", e)))?;
+            return Ok(PutPoint::Inserted(InsertedPoint {
+                id,
+                version,
+                previous_id: previous.map(|(previous_id, _)| previous_id),
+            }));
+        }
         self.conn
             .execute(
                 r#"

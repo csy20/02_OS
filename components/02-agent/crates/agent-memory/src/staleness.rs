@@ -1,6 +1,8 @@
 use crate::store::MemoryStore;
 use agent_core::{
-    types::{EvidenceMemory, MemoryStatus, RepoId},
+    config::RepoConfig,
+    contain::read_regular_text_within,
+    types::{EvidenceMemory, Language, MemoryStatus, RepoId},
     Result,
 };
 use agent_git::GitRepo;
@@ -8,9 +10,30 @@ use agent_index::IndexDatabase;
 use agent_parser::CodeExtractor;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+
+fn is_code_evidence(path: &str) -> bool {
+    matches!(
+        Path::new(path).extension().and_then(|ext| ext.to_str()),
+        Some("rs" | "py" | "c" | "sh" | "js" | "ts")
+    )
+}
+
+fn live_symbol_names(root: &Path, relative: &str, max_bytes: u64) -> Option<HashSet<String>> {
+    let path = Path::new(relative);
+    let content = read_regular_text_within(root, path, max_bytes).ok()?;
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let extracted =
+        CodeExtractor::extract(relative, &content, Language::from_extension(extension)).ok()?;
+    let mut names = HashSet::new();
+    for symbol in extracted.symbols {
+        names.insert(symbol.name);
+        names.insert(symbol.qualified_name);
+    }
+    Some(names)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StalenessReport {
@@ -51,7 +74,7 @@ impl StalenessEngine {
                 continue;
             }
 
-            // File exists and was modified: check line ranges against indexed symbols
+            // File exists and was modified: compare indexed symbols with a fresh extract.
             let content = match fs::read_to_string(&full_file_path) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -64,6 +87,21 @@ impl StalenessEngine {
             let lang = agent_core::types::Language::from_extension(ext);
             let fresh_extraction =
                 CodeExtractor::extract(&file_diff.file_path, &content, lang).ok();
+
+            if let Some(ref fresh) = fresh_extraction {
+                let fresh_names: HashSet<&str> = fresh
+                    .symbols
+                    .iter()
+                    .map(|symbol| symbol.name.as_str())
+                    .collect();
+                if let Ok(old_symbols) = db.find_symbols_by_file(repo_id, &file_diff.file_path) {
+                    for old in old_symbols {
+                        if !fresh_names.contains(old.name.as_str()) {
+                            changed_symbols.insert(old.name);
+                        }
+                    }
+                }
+            }
 
             for hunk in &file_diff.hunks {
                 let hunk_range_start = hunk.new_start;
@@ -97,6 +135,8 @@ impl StalenessEngine {
         let mut fresh_count = 0;
         let mut degraded_count = 0;
         let mut stale_count = 0;
+        let max_bytes = RepoConfig::load_or_default(root).max_file_size_kb * 1024;
+        let mut live_cache: HashMap<String, Option<HashSet<String>>> = HashMap::new();
 
         for mut mem in memories {
             let mut memory_changed = false;
@@ -104,17 +144,33 @@ impl StalenessEngine {
             let mut has_degraded_evidence = false;
 
             for ev in &mem.evidence {
-                // Check if file was deleted
                 let full_path = root.join(&ev.file);
-                if !full_path.exists() {
+                if !full_path.is_file() {
                     has_stale_evidence = true;
                     break;
                 }
 
-                // Check if any referenced symbols changed
-                for sym in &ev.symbols {
-                    if changed_symbols.contains(sym) {
-                        has_degraded_evidence = true;
+                if is_code_evidence(&ev.file) {
+                    let names = live_cache
+                        .entry(ev.file.clone())
+                        .or_insert_with(|| live_symbol_names(root, &ev.file, max_bytes));
+                    match names {
+                        Some(names) => {
+                            for sym in &ev.symbols {
+                                if !names.contains(sym) {
+                                    has_stale_evidence = true;
+                                } else if changed_symbols.contains(sym) {
+                                    has_degraded_evidence = true;
+                                }
+                            }
+                        }
+                        None => has_stale_evidence = true,
+                    }
+                } else {
+                    for sym in &ev.symbols {
+                        if changed_symbols.contains(sym) {
+                            has_degraded_evidence = true;
+                        }
                     }
                 }
             }

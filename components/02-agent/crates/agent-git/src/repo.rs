@@ -115,6 +115,7 @@ impl GitRepo {
     pub fn status_fingerprint(&self) -> Result<String> {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true);
+        opts.recurse_untracked_dirs(true);
         opts.renames_head_to_index(true);
 
         let statuses = self
@@ -127,16 +128,44 @@ impl GitRepo {
             if let Some(path) = entry.path() {
                 let status_bits = entry.status().bits();
                 let full_path = self.root.join(path);
-                let mtime = full_path
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .map(|t| format!("{:?}", t))
+                let meta = std::fs::symlink_metadata(&full_path).ok();
+                let mtime = meta
+                    .as_ref()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .map(|modified| format!("{modified:?}"))
                     .unwrap_or_default();
-                entries.push(format!("{}:{}:{}", path, status_bits, mtime));
+                let len = meta.as_ref().map(|metadata| metadata.len()).unwrap_or(0);
+                entries.push(format!("{path}:{status_bits}:{mtime}:{len}"));
             }
         }
         entries.sort();
         Ok(entries.join(";"))
+    }
+
+    /// Untracked and ignored worktree paths, with ignored directories expanded to files.
+    pub fn list_untracked_and_ignored(&self) -> Result<Vec<String>> {
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(true)
+            .include_ignored(true)
+            .recurse_untracked_dirs(true)
+            .recurse_ignored_dirs(true);
+        let statuses = self
+            .repo
+            .statuses(Some(&mut opts))
+            .map_err(|e| AgentError::Git(format!("Failed to query status: {}", e)))?;
+        let mut paths = Vec::new();
+        for entry in statuses.iter() {
+            let status = entry.status();
+            if !(status.is_wt_new() || status.is_ignored()) {
+                continue;
+            }
+            if let Some(path) = entry.path() {
+                paths.push(path.to_string());
+            }
+        }
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
     }
 
     pub fn info(&self) -> Result<RepoInfo> {

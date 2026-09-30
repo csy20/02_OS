@@ -108,6 +108,7 @@ blueman
 fastfetch
 firefox
 git
+python
 sqlite
 
 # GNOME (default session, Pop-style floating desktop)

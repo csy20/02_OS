@@ -5,6 +5,15 @@ use serde_json::json;
 use std::env;
 
 pub fn execute(json_output: bool) -> Result<()> {
+    run(json_output, true)
+}
+
+/// Initialize storage without writing a human-readable banner to stdout.
+pub fn execute_quiet() -> Result<()> {
+    run(false, false)
+}
+
+fn run(json_output: bool, print_human: bool) -> Result<()> {
     let current_dir = env::current_dir()?;
     let repo_root = GitDiscovery::find_repository_root(&current_dir)?;
     let git_repo = GitRepo::open(&repo_root)?;
@@ -32,7 +41,7 @@ pub fn execute(json_output: bool) -> Result<()> {
             "head_commit": repo_info.head_commit,
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
-    } else {
+    } else if print_human {
         println!("02 Agent Runtime: Repository Initialized");
         println!("  Repository:  {}", repo_info.name);
         println!("  Root Path:   {}", repo_info.root_path.display());

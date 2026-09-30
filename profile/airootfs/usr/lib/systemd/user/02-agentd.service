@@ -10,12 +10,12 @@ Restart=on-failure
 RestartSec=3s
 Environment=RUST_LOG=info
 
-# User-level protection. Home stays writable because the daemon indexes
-# repositories that live under the user's home directory. The data directory
-# itself is created mode 0700.
+# ProtectHome=no leaves home writable so repositories there can be indexed.
+# The data directory is still created mode 0700. A leading '-' keeps the
+# first start from failing when those paths do not exist yet.
 ProtectSystem=strict
-ProtectHome=read-write
-ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %t
+ProtectHome=no
+ReadWritePaths=-%h/.local/share/02-agent -%h/.cache/02-agent -%t
 NoNewPrivileges=true
 
 [Install]

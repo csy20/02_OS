@@ -1,4 +1,4 @@
-use agent_core::{error::AgentError, paths::StoragePaths, Result};
+use agent_core::{error::AgentError, paths::StoragePaths, types::SecretPattern, Result};
 use agent_git::{GitDiscovery, GitRepo};
 use agent_index::IndexDatabase;
 use serde_json::json;
@@ -16,7 +16,12 @@ pub fn execute(name: &str, json_output: bool) -> Result<()> {
     }
 
     let db = IndexDatabase::open(&db_path)?;
-    let symbols = db.find_symbols_by_name(&repo_info.id, name)?;
+    let mut symbols = db.find_symbols_by_name(&repo_info.id, name)?;
+    for symbol in &mut symbols {
+        if let Some(signature) = symbol.signature.as_mut() {
+            *signature = SecretPattern::redact(signature);
+        }
+    }
 
     if json_output {
         let out = json!({

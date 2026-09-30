@@ -8,4 +8,4 @@ Welcome to 02_OS — GNOME desktop on Arch Linux (Pop-style).
   Right-click dock icons to pin or unpin
   Trash sits on the right of the dock
 
-Install from Settings, or run:  sudo archinstall
+Install: launch "Install 02_OS" (which runs the provisioner)

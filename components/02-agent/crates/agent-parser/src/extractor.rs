@@ -13,6 +13,16 @@ pub struct ExtractionResult {
 
 pub struct CodeExtractor;
 
+fn floor_char_boundary(content: &str, mut index: usize) -> usize {
+    if index > content.len() {
+        index = content.len();
+    }
+    while index > 0 && !content.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
 impl CodeExtractor {
     pub fn extract(file_path: &str, content: &str, language: Language) -> Result<ExtractionResult> {
         let mut result = match language {
@@ -122,7 +132,8 @@ impl CodeExtractor {
                             break;
                         }
                     }
-                    let pre_start = node.start_byte().saturating_sub(256);
+                    let pre_start =
+                        floor_char_boundary(content, node.start_byte().saturating_sub(256));
                     let pre_slice = &content[pre_start..node.start_byte()];
                     let is_test = name.starts_with("test_")
                         || full_text.contains("#[test]")

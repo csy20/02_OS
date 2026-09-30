@@ -692,7 +692,7 @@ impl Task for LinkCommits {
             let Some(commit_id) = point.provenance.commit_id.clone() else {
                 continue;
             };
-            let node = commit_node_id(&commit_id);
+            let node = commit_node_id(&ctx.dataset.id, &commit_id);
             if ctx.ontology.allows_node("commit") {
                 ctx.db.upsert_node(
                     ctx.info.id.as_str(),

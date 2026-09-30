@@ -39,7 +39,17 @@ if command -v strip >/dev/null 2>&1; then
     strip "${DEST_DIR}/02" "${DEST_DIR}/02-agentd" || true
 fi
 
+PROV_DIR="${REPO_ROOT}/profile/airootfs/usr/lib/02-agent"
+mkdir -p "${PROV_DIR}"
+revision="unknown"
+if git_rev="$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null)" && [[ -n "${git_rev}" ]]; then
+    revision="${git_rev}"
+fi
+digest="$(sha256sum "${DEST_DIR}/02" | awk 'NR==1 { print $1 }')"
+printf 'revision=%s\nsha256=%s\n' "${revision}" "${digest}" > "${PROV_DIR}/SOURCE_REVISION"
+
 echo "Staged binaries:"
 ls -lh "${DEST_DIR}/02" "${DEST_DIR}/02agent" "${DEST_DIR}/02-agentd"
+echo "Provenance: ${PROV_DIR}/SOURCE_REVISION"
 
 echo "=== [02 Agent Runtime] Build & Staging Complete ==="

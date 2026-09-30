@@ -1,4 +1,4 @@
-use agent_core::{paths::StoragePaths, Result};
+use agent_core::{paths::StoragePaths, AgentError, Result};
 use agent_git::{GitDiscovery, GitRepo};
 use agent_index::IndexDatabase;
 use agent_memory::{MemoryStore, MemoryVerifier};
@@ -95,7 +95,9 @@ pub fn execute_inspect(id: &str, json_output: bool) -> Result<()> {
             }
         }
         None => {
-            eprintln!("Memory with ID '{}' not found.", id);
+            return Err(AgentError::General(format!(
+                "Memory with ID '{id}' not found."
+            )));
         }
     }
 
@@ -146,7 +148,9 @@ pub fn execute_verify(id: &str, json_output: bool) -> Result<()> {
             }
         }
         None => {
-            eprintln!("Memory with ID '{}' not found.", id);
+            return Err(AgentError::General(format!(
+                "Memory with ID '{id}' not found."
+            )));
         }
     }
 

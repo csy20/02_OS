@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Copy the 02_OS allowlist from the live overlay into an installed system.
+# Live-only paths (sudoers, greetd, sshd, the live user) are not on the list.
+set -euo pipefail
+
+usage() {
+  echo "Usage: 02os-provision TARGET" >&2
+  echo "       02os-provision --source DIR --target DIR" >&2
+  exit 2
+}
+
+# 02OS_OVERLAY is not a valid shell identifier (it starts with a digit).
+source_root="$(printenv 02OS_OVERLAY || true)"
+if [[ -z "${source_root}" ]]; then
+  source_root=/
+fi
+target=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source)
+      [[ $# -ge 2 ]] || usage
+      source_root="$2"
+      shift 2
+      ;;
+    --target)
+      [[ $# -ge 2 ]] || usage
+      target="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "ERROR: unknown option $1" >&2
+      usage
+      ;;
+    *)
+      if [[ -n "${target}" ]]; then
+        echo "ERROR: unexpected argument $1" >&2
+        usage
+      fi
+      target="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "${target}" ]]; then
+  usage
+fi
+
+if [[ ! -d "${source_root}" ]]; then
+  echo "ERROR: source overlay is not a directory: ${source_root}" >&2
+  exit 1
+fi
+
+source_canon="$(readlink -f -- "${source_root}")"
+if ! target_canon="$(readlink -f -- "${target}")"; then
+  echo "ERROR: target parent must already exist: ${target}" >&2
+  exit 1
+fi
+
+# True when path is source_canon or a path under it. `/` contains every absolute path.
+is_inside_root() {
+  local root="$1" path="$2" prefix
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+  if [[ "${root}" == "/" ]]; then
+    [[ "${path}" == /* ]]
+    return
+  fi
+  if [[ "${path}" == "${root}" ]]; then
+    return 0
+  fi
+  prefix="${root}/"
+  [[ "${path:0:${#prefix}}" == "${prefix}" ]]
+}
+
+assert_inside() {
+  local path="$1" resolved=""
+  if ! resolved="$(readlink -f -- "${path}")"; then
+    echo "ERROR: refusing to copy unresolved symlink ${path}" >&2
+    return 1
+  fi
+  if ! is_inside_root "${source_canon}" "${resolved}"; then
+    echo "ERROR: refusing to copy ${path} (resolves to ${resolved} outside ${source_canon})" >&2
+    return 1
+  fi
+}
+
+allowlist=(
+  usr/bin/02
+  usr/bin/02-agentd
+  usr/bin/02agent
+  usr/lib/systemd/user/02-agentd.service
+  usr/local/bin/pop-launcher
+  usr/local/bin/pop-shell-shortcuts
+  usr/local/bin/02os-install
+  usr/local/bin/02os-provision
+  usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com
+  usr/share/gnome-shell/extensions/pop-shell@system76.com
+  usr/share/icons/02-OS
+  usr/share/backgrounds/02os
+  usr/share/glib-2.0/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml
+  usr/share/glib-2.0/schemas/org.gnome.shell.extensions.pop-shell.gschema.xml
+  etc/dconf/db/local.d/00-02os
+  etc/dconf/profile/user
+  etc/dconf/db/local
+  etc/systemd/user/default.target.wants/02-agentd.service
+  usr/share/applications/02os-install.desktop
+  usr/lib/02-agent
+)
+
+copy_entry() {
+  local rel="$1"
+  local src="${source_canon}/${rel}"
+  local dest="${target_canon}/${rel}"
+  local link=""
+  if [[ ! -e "${src}" && ! -L "${src}" ]]; then
+    echo "WARNING: skipping missing ${rel}" >&2
+    return 0
+  fi
+  assert_inside "${src}"
+  if [[ -d "${src}" && ! -L "${src}" ]]; then
+    while IFS= read -r -d '' link; do
+      assert_inside "${link}"
+    done < <(find "${src}" -type l -print0)
+    mkdir -p -- "${dest}"
+    cp -a -- "${src}/." "${dest}/"
+  else
+    mkdir -p -- "$(dirname -- "${dest}")"
+    cp -a -- "${src}" "${dest}"
+  fi
+}
+
+mkdir -p -- "${target_canon}"
+echo "02os-provision: ${source_canon} -> ${target_canon}"
+
+for rel in "${allowlist[@]}"; do
+  copy_entry "${rel}"
+done
