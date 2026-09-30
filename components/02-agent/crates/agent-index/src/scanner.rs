@@ -1,12 +1,47 @@
 use agent_core::{
     config::RepoConfig,
+    contain::read_indexed_bytes,
     types::{FileKind, IndexedFile, Language, SecretPattern},
 };
 use chrono::Utc;
 use ignore::WalkBuilder;
 use sha2::{Digest, Sha256};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+/// Directory ignore patterns (`build/`) match a path component, not a string prefix.
+pub fn custom_ignored(rel: &Path, patterns: &[String]) -> bool {
+    if rel.as_os_str().is_empty() {
+        return false;
+    }
+    let components: Vec<&str> = rel
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect();
+    if components.is_empty() {
+        return false;
+    }
+    let joined = components.join("/");
+    for pattern in patterns {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(name) = trimmed.strip_suffix('/') {
+            if name.is_empty() {
+                continue;
+            }
+            if components.contains(&name) {
+                return true;
+            }
+        } else if joined == trimmed || joined.starts_with(&format!("{trimmed}/")) {
+            return true;
+        }
+    }
+    false
+}
 
 pub struct RepoScanner {
     root: PathBuf,
@@ -35,6 +70,14 @@ impl RepoScanner {
         builder.git_ignore(true);
         builder.git_global(true);
         builder.git_exclude(true);
+        builder.follow_links(false);
+        let ignore_root = self.root.clone();
+        let ignore_patterns = self.config.custom_ignores.clone();
+        builder.filter_entry(move |entry| match entry.path().strip_prefix(&ignore_root) {
+            Ok(rel) if rel.as_os_str().is_empty() => true,
+            Ok(rel) => !custom_ignored(rel, &ignore_patterns),
+            Err(_) => false,
+        });
 
         // Add custom .02agentignore if it exists
         let agent_ignore = self.root.join(".02agentignore");
@@ -52,7 +95,12 @@ impl RepoScanner {
             };
 
             let path = entry.path();
-            if !path.is_file() {
+            let file_type = match entry.file_type() {
+                Some(file_type) => file_type,
+                None => continue,
+            };
+            // Never follow a symlink. The real file is indexed under its own name.
+            if file_type.is_symlink() || !file_type.is_file() {
                 continue;
             }
 
@@ -61,56 +109,42 @@ impl RepoScanner {
                 continue;
             }
 
-            // Exclude secrets
+            // Exclude secrets by filename before opening the body.
             if self.config.exclude_secrets && SecretPattern::is_secret(path) {
                 continue;
             }
 
             // Relative path from repo root
-            let rel_path = match path.strip_prefix(&self.root) {
-                Ok(p) => match p.to_str() {
-                    Some(s) => s.to_string(),
-                    None => continue,
-                },
+            let rel = match path.strip_prefix(&self.root) {
+                Ok(rel) => rel,
                 Err(_) => continue,
             };
-
-            // Check custom ignore list
-            if self.config.custom_ignores.iter().any(|pattern| {
-                let trimmed = pattern.trim_end_matches('/');
-                rel_path.starts_with(pattern)
-                    || rel_path.starts_with(trimmed)
-                    || rel_path.contains(&format!("/{}/", trimmed))
-            }) {
+            let rel_path = match rel.to_str() {
+                Some(text) => text.to_string(),
+                None => continue,
+            };
+            if custom_ignored(rel, &self.config.custom_ignores) {
                 continue;
             }
-
-            let metadata = match fs::metadata(path) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-
-            let size = metadata.len();
-            if size > max_bytes {
-                continue;
-            }
-
-            // Read content and compute hash
-            let (hash, content) = match fs::read(path) {
-                Ok(bytes) => {
-                    let mut hasher = Sha256::new();
-                    hasher.update(&bytes);
-                    let h = hex::encode(hasher.finalize());
-                    // If UTF-8, store text content for FTS5 indexing
-                    let text = std::str::from_utf8(&bytes).ok().map(SecretPattern::redact);
-                    (h, text)
-                }
-                Err(_) => continue,
-            };
 
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let language = Language::from_extension(ext);
             let kind = Self::classify_kind(&rel_path, language);
+            if (kind == FileKind::Test && !self.config.index_tests)
+                || (kind == FileKind::Documentation && !self.config.index_docs)
+            {
+                continue;
+            }
+
+            let bytes = match read_indexed_bytes(&self.root, path, max_bytes) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let size = bytes.len() as u64;
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let hash = hex::encode(hasher.finalize());
+            let content = std::str::from_utf8(&bytes).ok().map(SecretPattern::redact);
             let is_test = kind == FileKind::Test;
             let is_doc = kind == FileKind::Documentation;
 

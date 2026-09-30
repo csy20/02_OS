@@ -102,12 +102,14 @@ impl RepoWatcher {
             let fps = self.fingerprint_lock();
             match fps.get(&repo_info.id) {
                 Some(fp) => fp != &current_fingerprint,
-                None => repo_info.modified_count > 0,
+                None => repo_info.modified_count > 0 || repo_info.untracked_count > 0,
             }
         };
         drop(db);
 
         if !(head_changed || dirty_changed) {
+            self.fingerprint_lock()
+                .insert(repo_info.id, current_fingerprint);
             return Ok(());
         }
 

@@ -1,10 +1,20 @@
 use agent_core::{
-    types::{EvidenceMemory, MemoryStatus, RepoId},
+    config::RepoConfig,
+    contain::{read_regular_text_within, validate_evidence_file},
+    types::{EvidenceMemory, Language, MemoryStatus, RepoId},
     Result,
 };
 use agent_index::IndexDatabase;
+use agent_parser::CodeExtractor;
 use chrono::Utc;
 use std::path::Path;
+
+fn is_code_evidence(path: &str) -> bool {
+    matches!(
+        Path::new(path).extension().and_then(|ext| ext.to_str()),
+        Some("rs" | "py" | "c" | "sh" | "js" | "ts")
+    )
+}
 
 pub struct MemoryVerifier;
 
@@ -22,41 +32,61 @@ impl MemoryVerifier {
             return Ok(verified);
         }
         let root = repo_root.as_ref();
+        let max_bytes = RepoConfig::load_or_default(root).max_file_size_kb * 1024;
+        let _ = (repo_id, db);
 
         let mut all_files_exist = true;
         let mut all_symbols_exist = true;
         let mut any_fingerprint_mismatch = false;
 
         for item in &memory.evidence {
-            let file_path = root.join(&item.file);
-            if !file_path.exists() {
+            let relative = Path::new(&item.file);
+            if validate_evidence_file(root, relative, max_bytes).is_err() {
                 all_files_exist = false;
                 break;
             }
+            if !is_code_evidence(&item.file) {
+                continue;
+            }
 
-            // Verify each referenced symbol
-            for sym_name in &item.symbols {
-                let found_symbols = db.find_symbols_by_name(repo_id, sym_name)?;
-                if found_symbols.is_empty() {
-                    // Check if file is non-code (manifest, markdown, config) where symbol names are keys
-                    if !item.file.ends_with(".rs")
-                        && !item.file.ends_with(".py")
-                        && !item.file.ends_with(".c")
-                        && !item.file.ends_with(".sh")
-                        && !item.file.ends_with(".js")
-                        && !item.file.ends_with(".ts")
-                    {
-                        // Non-code anchor: file existence is sufficient evidence
-                        continue;
-                    }
-
+            let content = match read_regular_text_within(root, relative, max_bytes) {
+                Ok(content) => content,
+                Err(_) => {
                     all_symbols_exist = false;
                     break;
                 }
+            };
+            let extension = relative
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("");
+            let extracted = match CodeExtractor::extract(
+                &item.file,
+                &content,
+                Language::from_extension(extension),
+            ) {
+                Ok(extracted) => extracted,
+                Err(_) => {
+                    all_symbols_exist = false;
+                    break;
+                }
+            };
 
-                // Check fingerprint if recorded
-                if let Some(ref recorded_fp) = item.fingerprint {
-                    if !found_symbols.iter().any(|s| &s.fingerprint == recorded_fp) {
+            for sym_name in &item.symbols {
+                let found: Vec<_> = extracted
+                    .symbols
+                    .iter()
+                    .filter(|symbol| symbol.name == *sym_name || symbol.qualified_name == *sym_name)
+                    .collect();
+                if found.is_empty() {
+                    all_symbols_exist = false;
+                    break;
+                }
+                if let Some(recorded_fp) = &item.fingerprint {
+                    if !found
+                        .iter()
+                        .any(|symbol| &symbol.fingerprint == recorded_fp)
+                    {
                         any_fingerprint_mismatch = true;
                     }
                 }

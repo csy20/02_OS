@@ -83,4 +83,34 @@ fn test_config_save_and_load() {
     let loaded = RepoConfig::load_or_default(dir.path());
     assert_eq!(loaded.max_file_size_kb, config.max_file_size_kb);
     assert!(loaded.exclude_secrets);
+
+    let before = std::fs::read_to_string(dir.path().join(".02agent/config.toml")).unwrap();
+    config.save_to_repo(dir.path()).unwrap();
+    let after = std::fs::read_to_string(dir.path().join(".02agent/config.toml")).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn test_config_refuses_symlink_and_does_not_follow_it() {
+    let dir = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let external = outside.path().join("config.toml");
+    std::fs::write(&external, "max_file_size_kb = 1\n").unwrap();
+    std::fs::create_dir(dir.path().join(".02agent")).unwrap();
+    std::os::unix::fs::symlink(&external, dir.path().join(".02agent/config.toml")).unwrap();
+
+    let loaded = RepoConfig::load_or_default(dir.path());
+    assert_eq!(
+        loaded.max_file_size_kb,
+        RepoConfig::default().max_file_size_kb
+    );
+
+    let err = RepoConfig::default().save_to_repo(dir.path()).unwrap_err();
+    assert!(
+        err.to_string().to_lowercase().contains("symlink") || err.to_string().contains("refus")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&external).unwrap(),
+        "max_file_size_kb = 1\n"
+    );
 }

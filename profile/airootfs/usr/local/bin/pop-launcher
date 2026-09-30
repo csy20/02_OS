@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Minimal pop-launcher for Pop Shell. JSON lines on stdin and stdout."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def application_dirs():
+    dirs = []
+    seen = set()
+
+    def add(path):
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        dirs.append(path)
+
+    for entry in os.environ.get("XDG_DATA_DIRS", "").split(":"):
+        if not entry:
+            continue
+        root = Path(entry)
+        add(root / "applications")
+        add(root)
+    add(Path("/usr/share/applications"))
+    return dirs
+
+
+def parse_desktop(path):
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    name = exec_line = icon = comment = None
+    entry_type = None
+    hidden = False
+    no_display = False
+    in_entry = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            in_entry = line == "[Desktop Entry]"
+            continue
+        if not in_entry or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key == "Type":
+            entry_type = value
+        elif key == "Name" and name is None:
+            name = value
+        elif key == "Exec" and exec_line is None:
+            exec_line = value
+        elif key == "Icon" and icon is None:
+            icon = value
+        elif key == "Comment" and comment is None:
+            comment = value
+        elif key == "Hidden":
+            hidden = value.lower() == "true"
+        elif key == "NoDisplay":
+            no_display = value.lower() == "true"
+    if hidden or no_display or not name or not exec_line:
+        return None
+    if entry_type not in (None, "Application"):
+        return None
+    return {
+        "path": str(path),
+        "name": name,
+        "exec": exec_line,
+        "icon": icon,
+        "description": comment if comment else exec_line,
+    }
+
+
+def load_apps():
+    apps = []
+    seen = set()
+    for directory in application_dirs():
+        if not directory.is_dir():
+            continue
+        try:
+            paths = sorted(directory.glob("*.desktop"))
+        except OSError:
+            continue
+        for path in paths:
+            if not path.is_file():
+                continue
+            try:
+                resolved = str(path.resolve())
+            except OSError:
+                resolved = str(path)
+            if resolved in seen:
+                continue
+            item = parse_desktop(path)
+            if item is None:
+                continue
+            seen.add(resolved)
+            apps.append(item)
+    apps.sort(key=lambda app: (app["name"].casefold(), app["path"]))
+    return apps
+
+
+def emit(payload):
+    sys.stdout.write(json.dumps(payload) + "\n")
+    sys.stdout.flush()
+
+
+def result_row(index, app):
+    icon = {"Name": app["icon"]} if app["icon"] else None
+    return {
+        "id": index,
+        "name": app["name"],
+        "description": app["description"],
+        "category_icon": None,
+        "icon": icon,
+        "exec": app["exec"],
+    }
+
+
+def desktop_entry(app):
+    return {"DesktopEntry": {"path": app["path"], "gpu_preference": "Default"}}
+
+
+def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    apps = load_apps()
+    current = []
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message == "Exit":
+            return 0
+        if isinstance(message, dict) and "Quit" in message:
+            return 0
+        if not isinstance(message, dict):
+            continue
+        if "Search" in message:
+            query = str(message.get("Search") or "").casefold()
+            if query:
+                matched = [app for app in apps if query in app["name"].casefold()]
+            else:
+                matched = list(apps)
+            current = matched
+            emit({"Update": [result_row(index, app) for index, app in enumerate(matched)]})
+        elif "Activate" in message:
+            index = message.get("Activate")
+            if isinstance(index, int) and 0 <= index < len(current):
+                emit(desktop_entry(current[index]))
+        elif "ActivateContext" in message:
+            payload = message.get("ActivateContext") or {}
+            index = payload.get("id") if isinstance(payload, dict) else None
+            if isinstance(index, int) and 0 <= index < len(current):
+                emit(desktop_entry(current[index]))
+        elif "Complete" in message:
+            index = message.get("Complete")
+            if isinstance(index, int) and 0 <= index < len(current):
+                emit({"Fill": current[index]["name"]})
+        elif "Context" in message:
+            index = message.get("Context")
+            options = []
+            if isinstance(index, int) and 0 <= index < len(current):
+                options = [{"id": 0, "name": "Launch"}]
+            emit({"Context": {"id": index, "options": options}})
+        elif "Select" in message:
+            continue
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

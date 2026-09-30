@@ -13,38 +13,21 @@ MIN_FREE_GB="${MIN_FREE_GB:-20}"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
-mkdir -p "${OUT_DIR}"
-mkdir -p "${WORK_DIR}"
+# shellcheck source=scripts/prepare-work-dir.sh
+source "${SCRIPT_DIR}/scripts/prepare-work-dir.sh"
+# Validates WORK_DIR before creating it, deleting a previous marked dir, or building.
+prepare_work_dir
 
-avail_kb="$(df -Pk "${WORK_DIR}" | awk 'NR==2 {print $4}')"
-min_kb=$((MIN_FREE_GB * 1024 * 1024))
-if [[ -z "${avail_kb}" || "${avail_kb}" -lt "${min_kb}" ]]; then
-  echo "ERROR: ${WORK_DIR} needs at least ${MIN_FREE_GB} GB free (available KB: ${avail_kb:-unknown})." >&2
-  echo "Set WORK_DIR to a filesystem with enough space and retry." >&2
-  exit 1
-fi
+mkdir -p "${OUT_DIR}"
 
 if [[ ! -d "${PACMAN_CACHE_DIR}" ]]; then
   PACMAN_CACHE_DIR="${SCRIPT_DIR}/.cache/pacman"
   mkdir -p "${PACMAN_CACHE_DIR}"
 fi
 
-# A failed mkarchiso used to leave root-owned files behind, so the next rm failed.
-if [[ -d "${WORK_DIR}" ]] && ! rm -rf "${WORK_DIR}"; then
-  echo "Work directory is not writable; reclaiming ownership inside Docker..."
-  docker run --rm --privileged \
-    -e HOST_UID="${HOST_UID}" \
-    -e HOST_GID="${HOST_GID}" \
-    -v "${WORK_DIR}:${WORK_DIR}" \
-    archlinux:latest \
-    chown -R "${HOST_UID}:${HOST_GID}" "${WORK_DIR}"
-  rm -rf "${WORK_DIR}"
-fi
-mkdir -p "${WORK_DIR}"
-
-# Build and stage 02 Agent Runtime binaries into airootfs
+# Build and stage 02, 02agent, and 02-agentd into airootfs before mkarchiso.
 if [[ -f "${SCRIPT_DIR}/scripts/build-agent-runtime.sh" ]]; then
-  echo "Building and staging 02 Agent Runtime..."
+  echo "Building and staging 02 Agent Runtime (02, 02agent, 02-agentd)..."
   "${SCRIPT_DIR}/scripts/build-agent-runtime.sh"
 fi
 

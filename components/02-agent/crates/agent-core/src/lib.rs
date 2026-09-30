@@ -1,4 +1,5 @@
 pub mod config;
+pub mod contain;
 pub mod error;
 pub mod graph_model;
 pub mod paths;

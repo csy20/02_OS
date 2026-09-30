@@ -43,8 +43,140 @@ pub fn name_node_id(dataset_id: &str, name: &str) -> String {
     format!("name:{dataset_id}:{name}")
 }
 
-pub fn commit_node_id(commit_id: &str) -> String {
-    format!("commit:{commit_id}")
+pub fn commit_node_id(dataset_id: &str, commit_id: &str) -> String {
+    format!("commit:{dataset_id}:{commit_id}")
+}
+
+/// Chunk paths are stored as `relative#start-end`. A `#` inside the file name is part of the path.
+pub fn chunk_owner_path(path: &str) -> &str {
+    let Some(index) = path.rfind('#') else {
+        return path;
+    };
+    let suffix = &path[index + 1..];
+    let Some((start, end)) = suffix.split_once('-') else {
+        return path;
+    };
+    if !start.is_empty()
+        && !end.is_empty()
+        && start.bytes().all(|byte| byte.is_ascii_digit())
+        && end.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        &path[..index]
+    } else {
+        path
+    }
+}
+
+pub fn datapoint_file_path<'a>(kind: &str, path: &'a str) -> &'a str {
+    if kind == "chunk" {
+        chunk_owner_path(path)
+    } else {
+        path
+    }
+}
+
+fn unscoped_commit_sha(id: &str) -> Option<&str> {
+    let rest = id.strip_prefix("commit:")?;
+    if !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+/// Give each dataset its own commit node. Legacy ids were `commit:<sha>` and were shared.
+pub fn migrate_unscoped_commit_nodes(conn: &rusqlite::Connection) -> Result<()> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT id, repo_id, dataset_id, kind, label, datapoint_id
+            FROM graph_nodes
+            WHERE id LIKE 'commit:%'
+            "#,
+        )
+        .map_err(|e| AgentError::Database(format!("Prepare commit migration failed: {}", e)))?;
+    let legacy: Vec<(String, String, String, String, String, Option<String>)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
+        .map_err(|e| AgentError::Database(format!("Query commit migration failed: {}", e)))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| AgentError::Database(format!("Commit migration row failed: {}", e)))?;
+    drop(stmt);
+
+    for (id, repo_id, owner_dataset, kind, label, datapoint_id) in legacy {
+        let Some(sha) = unscoped_commit_sha(&id) else {
+            continue;
+        };
+        let mut datasets = vec![owner_dataset.clone()];
+        let mut edge_stmt = conn
+            .prepare("SELECT DISTINCT dataset_id FROM graph_edges WHERE src_id = ?1 OR dst_id = ?1")
+            .map_err(|e| AgentError::Database(format!("Prepare commit edges failed: {}", e)))?;
+        let edge_datasets: Vec<String> = edge_stmt
+            .query_map(params![id], |row| row.get(0))
+            .map_err(|e| AgentError::Database(format!("Query commit edges failed: {}", e)))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AgentError::Database(format!("Commit edge row failed: {}", e)))?;
+        drop(edge_stmt);
+        for dataset_id in edge_datasets {
+            if !datasets.iter().any(|existing| existing == &dataset_id) {
+                datasets.push(dataset_id);
+            }
+        }
+
+        for dataset_id in &datasets {
+            let new_id = commit_node_id(dataset_id, sha);
+            let owned_datapoint = if dataset_id == &owner_dataset {
+                datapoint_id.as_deref()
+            } else {
+                None
+            };
+            conn.execute(
+                r#"
+                INSERT OR IGNORE INTO graph_nodes
+                    (id, repo_id, dataset_id, kind, label, datapoint_id)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "#,
+                params![new_id, repo_id, dataset_id, kind, label, owned_datapoint],
+            )
+            .map_err(|e| AgentError::Database(format!("Commit node copy failed: {}", e)))?;
+            conn.execute(
+                "UPDATE graph_edges SET src_id = ?1 WHERE dataset_id = ?2 AND src_id = ?3",
+                params![new_id, dataset_id, id],
+            )
+            .map_err(|e| AgentError::Database(format!("Commit edge retarget failed: {}", e)))?;
+            conn.execute(
+                "UPDATE graph_edges SET dst_id = ?1 WHERE dataset_id = ?2 AND dst_id = ?3",
+                params![new_id, dataset_id, id],
+            )
+            .map_err(|e| AgentError::Database(format!("Commit edge retarget failed: {}", e)))?;
+        }
+
+        let owner_id = commit_node_id(&owner_dataset, sha);
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO node_set_members (node_set_id, node_id)
+            SELECT node_set_id, ?1 FROM node_set_members WHERE node_id = ?2
+            "#,
+            params![owner_id, id],
+        )
+        .map_err(|e| AgentError::Database(format!("Commit membership copy failed: {}", e)))?;
+        conn.execute(
+            "DELETE FROM node_set_members WHERE node_id = ?1",
+            params![id],
+        )
+        .map_err(|e| AgentError::Database(format!("Commit membership delete failed: {}", e)))?;
+        conn.execute("DELETE FROM graph_nodes WHERE id = ?1", params![id])
+            .map_err(|e| AgentError::Database(format!("Commit node delete failed: {}", e)))?;
+    }
+    Ok(())
 }
 
 pub fn session_node_id(session_id: &str) -> String {
@@ -77,6 +209,25 @@ impl IndexDatabase {
         Ok(())
     }
 
+    fn require_same_dataset(&self, dataset_id: &str, node_id: &str) -> Result<()> {
+        let owner: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT dataset_id FROM graph_nodes WHERE id = ?1",
+                params![node_id],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(owner) = owner {
+            if owner != dataset_id {
+                return Err(AgentError::Database(format!(
+                    "graph node {node_id} belongs to dataset {owner}, not {dataset_id}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub fn upsert_edge(
         &mut self,
         repo_id: &str,
@@ -85,6 +236,8 @@ impl IndexDatabase {
         dst_id: &str,
         kind: EdgeKind,
     ) -> Result<bool> {
+        self.require_same_dataset(dataset_id, src_id)?;
+        self.require_same_dataset(dataset_id, dst_id)?;
         let changed = self
             .conn
             .execute(
@@ -108,6 +261,8 @@ impl IndexDatabase {
         kind: EdgeKind,
         payload: Option<&str>,
     ) -> Result<bool> {
+        self.require_same_dataset(dataset_id, src_id)?;
+        self.require_same_dataset(dataset_id, dst_id)?;
         let changed = self
             .conn
             .execute(
@@ -143,17 +298,22 @@ impl IndexDatabase {
             .conn
             .prepare(
                 r#"
-                SELECT id FROM datapoints
+                SELECT id, path FROM datapoints
                 WHERE dataset_id = ?1 AND kind = 'chunk'
-                  AND (path = ?2 OR substr(path, 1, length(?2) + 1) = ?2 || '#')
                 "#,
             )
             .map_err(|e| AgentError::Database(format!("Prepare chunk delete failed: {}", e)))?;
         let ids: Vec<String> = stmt
-            .query_map(params![dataset_id, path], |row| row.get(0))
+            .query_map(params![dataset_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|e| AgentError::Database(format!("Chunk query failed: {}", e)))?
             .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|e| AgentError::Database(format!("Chunk row failed: {}", e)))?;
+            .map_err(|e| AgentError::Database(format!("Chunk row failed: {}", e)))?
+            .into_iter()
+            .filter(|(_, stored)| chunk_owner_path(stored) == path)
+            .map(|(id, _)| id)
+            .collect();
         drop(stmt);
 
         for id in ids {

@@ -82,6 +82,14 @@ pub fn execute(task: &str, budget: usize, json_output: bool) -> Result<()> {
         }
         println!();
 
+        if !package.diagnostic_memories.is_empty() {
+            println!("Diagnostic context (not verified)");
+            for m in &package.diagnostic_memories {
+                println!("  {}", m.claim);
+            }
+            println!();
+        }
+
         println!("Git information");
         if package.git_context.modified_files.is_empty() {
             println!("  clean working tree");

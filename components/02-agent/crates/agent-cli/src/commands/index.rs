@@ -14,8 +14,12 @@ pub fn execute(full: bool, json_output: bool) -> Result<()> {
     let repo_info = git_probe.info()?;
     let db_path = StoragePaths::repo_db_path(&repo_info.id)?;
     if !db_path.exists() {
-        println!("Repository not initialized yet. Initializing...");
-        crate::commands::init::execute(false)?;
+        if json_output {
+            crate::commands::init::execute_quiet()?;
+        } else {
+            println!("Repository not initialized yet. Initializing...");
+            crate::commands::init::execute(false)?;
+        }
     }
 
     let mut handle = RepoHandle::open(&repo_root)?;

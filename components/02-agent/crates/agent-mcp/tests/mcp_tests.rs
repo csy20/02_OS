@@ -240,3 +240,49 @@ fn test_merge_config_text_rejects_non_objects() {
     let zed_value: serde_json::Value = serde_json::from_str(&zed).unwrap();
     assert_eq!(zed_value["context_servers"]["02"]["command"], "02");
 }
+
+#[test]
+fn memory_write_rejects_paths_outside_the_repository() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("src/main.rs")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let sig = git2::Signature::now("Tester", "test@02os.org").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+        .unwrap();
+
+    let outside = tempdir().unwrap();
+    fs::write(outside.path().join("secret.txt"), "nope").unwrap();
+    std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("leak.rs")).unwrap();
+
+    for file in ["/etc/passwd", "../secret.txt", "leak.rs", ""] {
+        let result = agent_mcp::call_tool(
+            root,
+            "memory_write",
+            &json!({
+                "id": "mem",
+                "claim": "outside",
+                "file": file,
+                "symbols": []
+            }),
+        );
+        assert!(result.is_error, "accepted evidence path {file}");
+    }
+
+    let ok = agent_mcp::call_tool(
+        root,
+        "memory_write",
+        &json!({
+            "id": "mem_ok",
+            "claim": "inside",
+            "file": "src/main.rs",
+            "symbols": ["main"]
+        }),
+    );
+    assert!(!ok.is_error, "{ok:?}");
+}

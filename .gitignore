@@ -22,4 +22,7 @@ __pycache__/
 target/
 components/02-agent/target/
 
+# Written by scripts/build-agent-runtime.sh after the 02 binary is staged.
+profile/airootfs/usr/lib/02-agent/SOURCE_REVISION
+
 

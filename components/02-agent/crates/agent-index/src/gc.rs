@@ -117,27 +117,45 @@ impl IndexDatabase {
     }
 
     fn orphan_datapoint_ids(&self, dataset_id: &str) -> Result<Vec<String>> {
+        let mut files = self
+            .conn
+            .prepare("SELECT relative_path FROM files")
+            .map_err(|e| AgentError::Database(format!("Prepare catalog paths failed: {e}")))?;
+        let catalog: std::collections::HashSet<String> = files
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| AgentError::Database(format!("Query catalog paths failed: {e}")))?
+            .collect::<std::result::Result<_, _>>()
+            .map_err(|e| AgentError::Database(format!("Catalog path row failed: {e}")))?;
+        drop(files);
+
         let mut stmt = self
             .conn
             .prepare(
                 r#"
-                SELECT id FROM datapoints
+                SELECT id, kind, path FROM datapoints
                 WHERE dataset_id = ?1
                   AND kind IN ('file', 'chunk')
                   AND path != ''
-                  AND CASE
-                        WHEN instr(path, '#') > 0 THEN substr(path, 1, instr(path, '#') - 1)
-                        ELSE path
-                      END NOT IN (SELECT relative_path FROM files)
                 "#,
             )
             .map_err(|e| AgentError::Database(format!("Prepare orphan datapoints failed: {e}")))?;
         let rows = stmt
-            .query_map(params![dataset_id], |row| row.get::<_, String>(0))
+            .query_map(params![dataset_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
             .map_err(|e| AgentError::Database(format!("Query orphan datapoints failed: {e}")))?;
         let mut ids = Vec::new();
         for row in rows {
-            ids.push(row.map_err(|e| AgentError::Database(format!("Orphan row failed: {e}")))?);
+            let (id, kind, path) =
+                row.map_err(|e| AgentError::Database(format!("Orphan row failed: {e}")))?;
+            let owner = crate::graph::datapoint_file_path(&kind, &path);
+            if !catalog.contains(owner) {
+                ids.push(id);
+            }
         }
         Ok(ids)
     }

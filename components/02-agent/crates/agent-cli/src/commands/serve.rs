@@ -1,4 +1,4 @@
-use agent_core::Result;
+use agent_core::{AgentError, Result};
 use std::process::Command;
 
 pub fn execute() -> Result<()> {
@@ -19,7 +19,13 @@ pub fn execute() -> Result<()> {
     })?;
 
     if !status.success() {
-        eprintln!("02-agentd exited with code: {:?}", status.code());
+        let code = status
+            .code()
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".to_string());
+        return Err(AgentError::General(format!(
+            "02-agentd exited with status {code}"
+        )));
     }
     Ok(())
 }

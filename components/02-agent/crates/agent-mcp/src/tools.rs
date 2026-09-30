@@ -1,6 +1,8 @@
 use crate::protocol::{ToolCallResult, ToolDefinition};
 use agent_context::ContextCompiler;
 use agent_core::{
+    config::RepoConfig,
+    contain::validate_evidence_file,
     paths::StoragePaths,
     types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus},
 };
@@ -380,6 +382,11 @@ pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallRes
                 Ok(s) => s,
                 Err(e) => return ToolCallResult::error(format!("Store error: {}", e)),
             };
+
+            let max_bytes = RepoConfig::load_or_default(repo_root).max_file_size_kb * 1024;
+            if let Err(err) = validate_evidence_file(repo_root, Path::new(file), max_bytes) {
+                return ToolCallResult::error(format!("evidence path rejected: {err}"));
+            }
 
             let commit_id = repo_info.head_commit.unwrap_or_else(|| "none".to_string());
             let mem = EvidenceMemory {

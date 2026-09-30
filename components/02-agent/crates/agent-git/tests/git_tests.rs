@@ -191,3 +191,30 @@ fn test_status_includes_rename_and_conflict() {
         "conflict missing from diff files: {diffs:?}"
     );
 }
+
+#[test]
+fn untracked_directory_child_edits_change_the_fingerprint() {
+    let dir = tempdir().unwrap();
+    let repo = Repository::init(dir.path()).unwrap();
+    let sig = git2::Signature::now("Tester", "test@02os.org").unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("main.rs")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+        .unwrap();
+
+    std::fs::create_dir_all(dir.path().join("notes")).unwrap();
+    let child = dir.path().join("notes/draft.txt");
+    std::fs::write(&child, "one").unwrap();
+    let git_repo = GitRepo::open(dir.path()).unwrap();
+    let first = git_repo.status_fingerprint().unwrap();
+    std::fs::write(&child, "two — longer").unwrap();
+    let second = git_repo.status_fingerprint().unwrap();
+    assert_ne!(first, second);
+    assert!(
+        first.contains("notes/draft.txt"),
+        "fingerprint did not recurse into the untracked directory: {first}"
+    );
+}

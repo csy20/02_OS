@@ -56,13 +56,13 @@ RestartSec=3s
 Environment=RUST_LOG=info
 
 ProtectSystem=strict
-ProtectHome=read-write
-ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %t
+ProtectHome=no
+ReadWritePaths=-%h/.local/share/02-agent -%h/.cache/02-agent -%t
 NoNewPrivileges=true
 ```
 
 - **`ProtectSystem=strict`**: Mounts `/usr`, `/boot`, `/etc`, and system directories read-only.
-- **`ProtectHome=read-write`**: The daemon indexes repositories under the home directory. The data directory `~/.local/share/02-agent` is still created mode `0700`.
+- **`ProtectHome=no`**: `no` leaves the home directory writable so the daemon can index repositories there. The data directory `~/.local/share/02-agent` is still created mode `0700`. Paths in `ReadWritePaths` are prefixed with `-` so a missing data or cache directory does not fail the first start.
 - **`NoNewPrivileges=true`**: Disallows gaining new privileges via `setuid` binaries.
 
 ---

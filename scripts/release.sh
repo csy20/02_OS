@@ -146,7 +146,7 @@ This release introduces the **02 Agent Runtime** — an operating-system-level r
   - Precompiled GLib schemas and dconf database for faster boot and minimal RAM footprint.
 - **archinstall**:
   - Live session user \`live\` (password \`live\`) with an unprivileged desktop session.
-  - Install from GNOME Console via the Install 02_OS launcher, or run \`sudo archinstall\`.
+  - Launch "Install 02_OS" (which runs the provisioner). Choose the GNOME desktop profile.
 - **Modern Linux Audio & Networking**:
   - PipeWire audio stack with automatic live unmuting.
   - Clean NetworkManager stack.

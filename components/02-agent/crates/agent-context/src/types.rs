@@ -68,6 +68,8 @@ pub struct EvidencePackage {
     pub relevant_tests: Vec<ScoredTest>,
     pub dependencies: Vec<DependencyNode>,
     pub verified_memories: Vec<EvidenceMemory>,
+    #[serde(default)]
+    pub diagnostic_memories: Vec<EvidenceMemory>,
     pub git_context: GitContextSummary,
     pub budget: BudgetReport,
 }
@@ -75,6 +77,9 @@ pub struct EvidencePackage {
 impl EvidencePackage {
     /// Render evidence package as a clean, structured Markdown document for LLM consumption.
     pub fn to_markdown(&self) -> String {
+        if self.budget.budget_limit == 0 {
+            return String::new();
+        }
         let mut md = String::new();
         md.push_str(&format!("# Repository Evidence: {}\n\n", self.task));
 
@@ -115,6 +120,17 @@ impl EvidencePackage {
             md.push('\n');
         }
 
+        if !self.diagnostic_memories.is_empty() {
+            md.push_str("## Diagnostic Context (not verified)\n");
+            for m in &self.diagnostic_memories {
+                md.push_str(&format!(
+                    "- **[{}]** {} (status: {}, confidence: {:.2})\n",
+                    m.id, m.claim, m.status, m.confidence
+                ));
+            }
+            md.push('\n');
+        }
+
         // Relevant Implementation Files
         if !self.relevant_files.is_empty() {
             md.push_str("## Relevant Implementation Files\n");
@@ -140,7 +156,8 @@ impl EvidencePackage {
         if !self.relevant_symbols.is_empty() {
             md.push_str("## Relevant Symbols\n");
             for s in &self.relevant_symbols {
-                let sig = s.symbol.signature.as_deref().unwrap_or(&s.symbol.name);
+                let raw = s.symbol.signature.as_deref().unwrap_or(&s.symbol.name);
+                let sig = bound_display(raw, 64);
                 md.push_str(&format!(
                     "- `{}` in `{}:{}` ({:?})\n",
                     sig, s.symbol.file_path, s.symbol.start_line, s.symbol.kind
@@ -187,6 +204,23 @@ impl EvidencePackage {
             md.push('\n');
         }
 
+        let limit_chars = self.budget.budget_limit.saturating_mul(4);
+        if md.len() > limit_chars {
+            let mut end = limit_chars;
+            while end > 0 && !md.is_char_boundary(end) {
+                end -= 1;
+            }
+            md.truncate(end);
+        }
         md
     }
+}
+
+fn bound_display(text: &str, max_tokens: usize) -> String {
+    let max_chars = max_tokens.saturating_mul(4);
+    let mut end = text.len().min(max_chars);
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
 }
