@@ -1,0 +1,36 @@
+name: pr-validation
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  os-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install profile validators
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils libglib2.0-bin
+      - name: Validate scripts, packages, permissions, desktop entries, and assets
+        run: python3 -m unittest discover -s scripts/tests -p test_os_profile.py -v
+
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build actual CLI and daemon with locked dependencies
+        run: cargo build --locked --workspace --manifest-path components/02-agent/Cargo.toml
+      - name: Exercise disposable CLI and MCP fixtures
+        run: python3 -m unittest discover -s scripts/tests -p test_runtime_smoke.py -v
