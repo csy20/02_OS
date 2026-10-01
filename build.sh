@@ -13,6 +13,18 @@ MIN_FREE_GB="${MIN_FREE_GB:-20}"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 
+# Drop the staged runtime on the way out, including after a failed build, so a
+# later manual mkarchiso cannot package binaries that are no longer this build.
+cleanup_staged_runtime() {
+  rm -f -- \
+    "${PROFILE_DIR}/airootfs/usr/bin/02" \
+    "${PROFILE_DIR}/airootfs/usr/bin/02-agentd" \
+    "${PROFILE_DIR}/airootfs/usr/bin/02agent" \
+    "${PROFILE_DIR}/airootfs/usr/lib/02-agent/SOURCE_REVISION" \
+    "${PROFILE_DIR}/airootfs/usr/lib/02-agent/BUILD_STAMP"
+}
+trap cleanup_staged_runtime EXIT
+
 # shellcheck source=scripts/prepare-work-dir.sh
 source "${SCRIPT_DIR}/scripts/prepare-work-dir.sh"
 # Validates WORK_DIR before creating it, deleting a previous marked dir, or building.
@@ -25,11 +37,14 @@ if [[ ! -d "${PACMAN_CACHE_DIR}" ]]; then
   mkdir -p "${PACMAN_CACHE_DIR}"
 fi
 
-# Build and stage 02, 02agent, and 02-agentd into airootfs before mkarchiso.
-if [[ -f "${SCRIPT_DIR}/scripts/build-agent-runtime.sh" ]]; then
-  echo "Building and staging 02 Agent Runtime (02, 02agent, 02-agentd)..."
-  "${SCRIPT_DIR}/scripts/build-agent-runtime.sh"
-fi
+# ./build.sh is the only supported image build. Stage from source, prove the
+# staged binaries match that build, then stamp the tree mkarchiso will copy.
+echo "Building and staging 02 Agent Runtime (02, 02agent, 02-agentd)..."
+"${SCRIPT_DIR}/scripts/build-agent-runtime.sh"
+"${SCRIPT_DIR}/scripts/verify-staged-runtime.sh"
+revision="$(git -C "${SCRIPT_DIR}" rev-parse HEAD)"
+printf 'built_by=build.sh\nrevision=%s\n' "${revision}" \
+  > "${PROFILE_DIR}/airootfs/usr/lib/02-agent/BUILD_STAMP"
 
 echo "============================================================"
 echo " Building 02_OS ISO via Docker (Arch Linux container)"

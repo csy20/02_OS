@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Refuse an image whose agent binaries are missing, do not match
+# SOURCE_REVISION, or were not stamped by ./build.sh.
+set -euo pipefail
+
+root="${1:-/}"
+prov="${root}/usr/lib/02-agent/SOURCE_REVISION"
+stamp="${root}/usr/lib/02-agent/BUILD_STAMP"
+bin="${root}/usr/bin/02"
+daemon="${root}/usr/bin/02-agentd"
+alias="${root}/usr/bin/02agent"
+
+fail() {
+  echo "ERROR: $*" >&2
+  echo "Use ./build.sh. A manual mkarchiso is not a 02_OS image." >&2
+  exit 1
+}
+
+[[ -f "${prov}" && ! -L "${prov}" ]] || fail "agent provenance ${prov} is missing"
+[[ -f "${stamp}" && ! -L "${stamp}" ]] || fail "build stamp ${stamp} is missing"
+[[ -f "${bin}" && ! -L "${bin}" ]] || fail "staged ${bin} is missing"
+[[ -f "${daemon}" && ! -L "${daemon}" ]] || fail "staged ${daemon} is missing"
+if [[ ! -L "${alias}" ]] || [[ "$(readlink -- "${alias}")" != "02" ]]; then
+  fail "${alias} must be a symlink to 02"
+fi
+
+field() {
+  local file="$1" key="$2"
+  awk -F= -v key="${key}" '$1 == key { print substr($0, length(key) + 2); exit }' "${file}"
+}
+
+built_by="$(field "${stamp}" built_by)"
+[[ "${built_by}" == "build.sh" ]] || fail "build stamp was not written by ./build.sh"
+
+stamp_rev="$(field "${stamp}" revision)"
+prov_rev="$(field "${prov}" revision)"
+[[ -n "${stamp_rev}" && "${stamp_rev}" == "${prov_rev}" ]] || fail "build stamp revision does not match SOURCE_REVISION"
+
+expect_02="$(field "${prov}" sha256_02)"
+if [[ -z "${expect_02}" ]]; then
+  expect_02="$(field "${prov}" sha256)"
+fi
+expect_daemon="$(field "${prov}" sha256_02_agentd)"
+actual_02="$(sha256sum "${bin}" | awk 'NR==1 { print $1 }')"
+actual_daemon="$(sha256sum "${daemon}" | awk 'NR==1 { print $1 }')"
+[[ -n "${expect_02}" && "${expect_02}" == "${actual_02}" ]] || fail "staged 02 does not match SOURCE_REVISION"
+[[ -n "${expect_daemon}" && "${expect_daemon}" == "${actual_daemon}" ]] || fail "staged 02-agentd does not match SOURCE_REVISION"

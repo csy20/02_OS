@@ -79,9 +79,10 @@ Use harmless fixture markers rather than personal files or live credentials.
 Run these on a dedicated disposable VM runner, because the ISO build requires
 privileged Docker. Never run the installer against the runner's host disks.
 
-1. Build using `build.sh` from the exact commit, record commit SHA and package
-   manifest, and checksum the ISO. Compare staged runtime version/features to
-   the source build; avoid bypassing binary staging with direct `mkarchiso`.
+1. Build using `./build.sh` from the exact commit. That is the only supported
+   image build: it records the commit, checks the staged runtime against the
+   source build, and refuses a direct `mkarchiso` that lacks that stamp.
+   Record the package manifest and checksum the ISO.
 2. Boot BIOS and UEFI with both a software-rendered GPU and accelerated graphics.
    Require login within a bounded deadline and capture serial logs and the
    journal as artifacts on failure.

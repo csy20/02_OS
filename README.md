@@ -2,7 +2,7 @@
 
 `02_OS` is an **agent-native developer operating system** built on Arch Linux. It pairs a refined **GNOME** desktop environment with an OS-native repository intelligence service (**02 Agent Runtime**) designed specifically for autonomous coding agents (OpenAI Codex, Claude Code, OpenCode, Gemini CLI, Cursor).
 
-Built with `archiso` in a privileged Docker container.
+Built with `archiso` in a privileged Docker container. This tree builds a public alpha live image. It is an experiment for developers, not a production operating system.
 
 ---
 
@@ -116,7 +116,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 - **Build-Time Schema Compilation**: GLib schemas and dconf databases are precompiled during ISO build, saving boot time and RAM overlayfs space.
 - **Clean User Management**: System users (`greeter`, `polkitd`, `dbus`) preserved via Arch packages and `sysusers.d`.
 - **Deduplicated Skeleton**: Unified dotfiles in `/etc/skel` as the single source of truth.
-- **Agent runtime staging**: run `scripts/build-agent-runtime.sh` before any `mkarchiso`. It compiles `02` (alias `02agent`) and `02-agentd`, strips them, and stages them into the overlay. Those binaries are not committed.
+- **Agent runtime staging**: `./build.sh` compiles `02` (alias `02agent`) and `02-agentd`, checks the staged binaries match that build, and then runs `mkarchiso`. Those binaries are not committed.
 - **zstd** squashfs + initramfs (faster decompression and boot).
 - **zram** swap with tuned swappiness.
 
@@ -158,7 +158,7 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 │       ├── etc/systemd/user/  # Enabled user services (02-agentd.service)
 │       ├── etc/sysusers.d/    # Declarative live user creation
 │       ├── root/              # Build-time customization script
-│       ├── usr/bin/           # Staged by scripts/build-agent-runtime.sh before mkarchiso
+│       ├── usr/bin/           # Staged by ./build.sh from source; not committed
 │       ├── usr/lib/systemd/user/ # 02-agentd systemd service definition
 │       └── usr/share/icons/02-OS/ # Glassmorphic vector icon theme
 ├── scripts/
@@ -171,30 +171,13 @@ Live session user is **`live`** (autologin, password **`live`**). The desktop do
 
 ## Building
 
+`./build.sh` is the only supported way to build a 02_OS image. It compiles the agent runtime, checks that the staged `02` and `02-agentd` binaries match that build, and then runs the image build in Docker. The agent binaries are not in git. A manual `mkarchiso` of this profile is not a 02_OS image: the image build refuses agent binaries that were not just stamped by `./build.sh`.
+
 ```bash
 ./build.sh
 ```
 
-Manual Docker build:
-
-Run `scripts/build-agent-runtime.sh` before any `mkarchiso`. That stages `02`, the `02agent` symlink, and `02-agentd`. Do not image whatever bytes happen to already be under `profile/airootfs/usr/bin`.
-
-```bash
-scripts/build-agent-runtime.sh
-
-docker run --rm -it --privileged \
-  -v "$(pwd)/profile:/02_OS" \
-  -v "$(pwd)/out:/out" \
-  -v /tmp/archiso-tmp:/tmp/archiso-tmp \
-  archlinux:latest bash
-```
-
-Inside the container, after the runtime has been staged on the host:
-
-```bash
-pacman -Sy --noconfirm archiso
-mkarchiso -v -w /tmp/archiso-tmp -o /out /02_OS
-```
+The ISO is written to `out/`.
 
 ---
 

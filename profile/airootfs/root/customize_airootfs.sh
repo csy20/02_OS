@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
-# Build-time customization for 02_OS ISO
+# Build-time customization for 02_OS ISO.
+# A manual mkarchiso stops here unless ./build.sh staged a matching runtime.
+/usr/local/bin/02os-check-runtime
+
 echo "==> Compiling GLib schemas in /usr/share/glib-2.0/schemas..."
 glib-compile-schemas /usr/share/glib-2.0/schemas
 

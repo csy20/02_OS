@@ -45,8 +45,10 @@ revision="unknown"
 if git_rev="$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null)" && [[ -n "${git_rev}" ]]; then
     revision="${git_rev}"
 fi
-digest="$(sha256sum "${DEST_DIR}/02" | awk 'NR==1 { print $1 }')"
-printf 'revision=%s\nsha256=%s\n' "${revision}" "${digest}" > "${PROV_DIR}/SOURCE_REVISION"
+digest_02="$(sha256sum "${DEST_DIR}/02" | awk 'NR==1 { print $1 }')"
+digest_daemon="$(sha256sum "${DEST_DIR}/02-agentd" | awk 'NR==1 { print $1 }')"
+printf 'revision=%s\nsha256=%s\nsha256_02=%s\nsha256_02_agentd=%s\n' \
+  "${revision}" "${digest_02}" "${digest_02}" "${digest_daemon}" > "${PROV_DIR}/SOURCE_REVISION"
 
 echo "Staged binaries:"
 ls -lh "${DEST_DIR}/02" "${DEST_DIR}/02agent" "${DEST_DIR}/02-agentd"
