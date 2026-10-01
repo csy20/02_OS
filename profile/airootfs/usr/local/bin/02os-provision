@@ -94,15 +94,14 @@ assert_inside() {
   fi
 }
 
-allowlist=(
+# Missing required entries abort the install. Optional entries are skipped.
+required=(
   usr/bin/02
   usr/bin/02-agentd
   usr/bin/02agent
   usr/lib/systemd/user/02-agentd.service
+  etc/systemd/user/default.target.wants/02-agentd.service
   usr/local/bin/pop-launcher
-  usr/local/bin/pop-shell-shortcuts
-  usr/local/bin/02os-install
-  usr/local/bin/02os-provision
   usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com
   usr/share/gnome-shell/extensions/pop-shell@system76.com
   usr/share/icons/02-OS
@@ -112,7 +111,12 @@ allowlist=(
   etc/dconf/db/local.d/00-02os
   etc/dconf/profile/user
   etc/dconf/db/local
-  etc/systemd/user/default.target.wants/02-agentd.service
+)
+
+optional=(
+  usr/local/bin/pop-shell-shortcuts
+  usr/local/bin/02os-install
+  usr/local/bin/02os-provision
   usr/share/applications/02os-install.desktop
   usr/lib/02-agent
 )
@@ -139,9 +143,41 @@ copy_entry() {
   fi
 }
 
+require_entry() {
+  local rel="$1"
+  local src="${source_canon}/${rel}"
+  if [[ ! -e "${src}" && ! -L "${src}" ]]; then
+    echo "ERROR: required 02_OS file is missing from the live system: ${rel}" >&2
+    echo "Refusing to leave a stock Arch system without the 02 desktop, agent, daemon, and branding." >&2
+    exit 1
+  fi
+}
+
 mkdir -p -- "${target_canon}"
 echo "02os-provision: ${source_canon} -> ${target_canon}"
 
-for rel in "${allowlist[@]}"; do
+for rel in "${required[@]}"; do
+  require_entry "${rel}"
+done
+
+for rel in "${required[@]}" "${optional[@]}"; do
   copy_entry "${rel}"
 done
+
+schema_dir="${target_canon}/usr/share/glib-2.0/schemas"
+if [[ ! -d "${schema_dir}" ]]; then
+  echo "ERROR: ${schema_dir} is missing after copying the 02 desktop profile." >&2
+  exit 1
+fi
+if ! command -v glib-compile-schemas >/dev/null 2>&1; then
+  echo "ERROR: glib-compile-schemas is required to install the 02 desktop profile." >&2
+  exit 1
+fi
+glib-compile-schemas "${schema_dir}"
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  icon_theme="${target_canon}/usr/share/icons/02-OS"
+  if [[ -d "${icon_theme}" ]]; then
+    gtk-update-icon-cache -q -t -f "${icon_theme}" || true
+  fi
+fi

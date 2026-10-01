@@ -8,8 +8,9 @@ Install 02_OS
 
 Choose the GNOME desktop profile when the installer asks which desktop to install.
 Partitioning, user account, and bootloader prompts still run.
-After the base system is installed, the 02_OS provisioner copies the dock,
-launcher, and agent runtime into the new system.
+After the base system is installed, and again after the desktop packages
+are installed, the 02_OS provisioner copies the 02 desktop profile, agent
+binaries, user daemon, and branding into the new system.
 EOF
 
 if [[ "$(id -u)" -ne 0 ]]; then

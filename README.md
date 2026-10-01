@@ -195,7 +195,7 @@ Accelerated rendering in QEMU:
 
 ## Install
 
-From the live desktop, launch **Install 02_OS** (which runs the provisioner). Choose the GNOME desktop profile.
+From the live desktop, launch **Install 02_OS**. That starts `archinstall` with the 02_OS plugin. Choose the GNOME desktop profile. The plugin copies the 02 desktop profile, agent binaries, user daemon, and branding onto the new system after the base install and again after the desktop packages are installed.
 
 The installer guides you through partitioning, username creation, and bootloader configuration.
 

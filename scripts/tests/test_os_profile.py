@@ -87,7 +87,7 @@ class OSProfileTests(unittest.TestCase):
             self.assertTrue(alias.is_symlink(), "usr/bin/02agent must be a symlink to 02 when it is staged")
             self.assertEqual(alias.readlink(), Path("02"))
         for script in ("02os-gnome-session", "02os-ensure-live-user", "pop-shell-shortcuts",
-                       "02os-install", "02os-provision", "pop-launcher"):
+                       "02os-install", "02os-provision", "pop-launcher", "02os-check-runtime"):
             self.assertEqual(permissions[f"/usr/local/bin/{script}"], "0:0:755")
 
     def test_install_desktop_launches_provisioner_entry(self):
@@ -100,11 +100,64 @@ class OSProfileTests(unittest.TestCase):
             self.assertIn("02os-install", line)
             self.assertNotIn("sudo archinstall", line)
         plugin = (OVERLAY / "usr/local/share/02os/archinstall_plugin.py").read_text()
-        self.assertIn("__archinstall__version__ = 3.0", plugin)
+        self.assertIn("__archinstall__version__ = 4.5", plugin)
         self.assertIn("def on_install", plugin)
+        self.assertIn("def on_genfstab", plugin)
         installer = (OVERLAY / "usr/local/bin/02os-install").read_text()
         self.assertIn("GNOME desktop profile", installer)
         self.assertIn("exec archinstall --plugin /usr/local/share/02os/archinstall_plugin.py --skip-version-check", installer)
+
+    def test_launcher_does_not_call_plain_archinstall(self):
+        desktop = (OVERLAY / "usr/share/applications/02os-install.desktop").read_text()
+        self.assertNotIn("archinstall", desktop)
+        installer = (OVERLAY / "usr/local/bin/02os-install").read_text()
+        invocations = []
+        for line in installer.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or "archinstall" not in stripped:
+                continue
+            invocations.append(stripped)
+            self.assertIn("--plugin", stripped, stripped)
+            self.assertIn("/usr/local/share/02os/archinstall_plugin.py", stripped, stripped)
+        self.assertGreaterEqual(len(invocations), 1)
+
+    def test_plugin_runs_on_archinstall_4_5(self):
+        # packages.x86_64 installs Extra archinstall 4.5-1. Its load_plugin compares
+        # __archinstall__version__ with float(version.rsplit(".", 1)[0]) and still
+        # instantiates Plugin(). Installer.minimal_installation calls on_install,
+        # and genfstab calls on_genfstab, both with the installer object.
+        plugin_path = OVERLAY / "usr/local/share/02os/archinstall_plugin.py"
+        namespace = {}
+        exec(compile(plugin_path.read_text(), str(plugin_path), "exec"), namespace)
+        packaged_version = "4.5"
+        gate = float(packaged_version.rsplit(".", 1)[0])
+        self.assertGreaterEqual(namespace["__archinstall__version__"], gate)
+        plugin = namespace["Plugin"]()
+        calls = []
+
+        def check_call(argv, **_kwargs):
+            calls.append(list(argv))
+
+        import subprocess
+        original = subprocess.check_call
+        subprocess.check_call = check_call
+        try:
+            class Installation:
+                def __init__(self):
+                    self.target = "/mnt/02os-target"
+
+            installation = Installation()
+            plugin.on_install(installation)
+            plugin.on_genfstab(installation)
+        finally:
+            subprocess.check_call = original
+        self.assertEqual(
+            calls,
+            [
+                ["/usr/local/bin/02os-provision", "/mnt/02os-target"],
+                ["/usr/local/bin/02os-provision", "/mnt/02os-target"],
+            ],
+        )
 
     def test_agentd_user_unit_is_not_ignored(self):
         unit = OVERLAY / "usr/lib/systemd/user/02-agentd.service"
@@ -131,19 +184,29 @@ class OSProfileTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((target / "usr/bin/02").read_text(), "runtime")
+            self.assertEqual((target / "usr/bin/02-agentd").read_text(), "daemon")
             self.assertTrue((target / "usr/bin/02agent").is_symlink())
             self.assertEqual((target / "usr/bin/02agent").readlink(), Path("02"))
+            self.assertEqual((target / "usr/lib/systemd/user/02-agentd.service").read_text(), "[Service]\n")
+            self.assertTrue((target / "etc/systemd/user/default.target.wants/02-agentd.service").is_symlink())
+            self.assertEqual((target / "usr/local/bin/pop-launcher").read_text(), "launcher")
+            self.assertEqual((target / "usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/extension.js").read_text(), "ext")
+            self.assertEqual((target / "usr/share/gnome-shell/extensions/pop-shell@system76.com/extension.js").read_text(), "ext")
             self.assertEqual((target / "usr/share/applications/02os-install.desktop").read_text(), "desktop")
             self.assertEqual((target / "usr/lib/02-agent/SOURCE_REVISION").read_text(), "rev\n")
+            self.assertEqual((target / "etc/dconf/db/local.d/00-02os").read_text(), "dconf")
+            self.assertEqual((target / "etc/dconf/profile/user").read_text(), "user-db:user\nsystem-db:local\n")
+            self.assertEqual((target / "usr/share/backgrounds/02os/desktop.jpg").read_text(), "jpg")
             schema_dir = target / "usr/share/glib-2.0/schemas"
-            self.assertEqual((schema_dir / "org.gnome.shell.extensions.dash-to-dock.gschema.xml").read_text(), "dock")
-            self.assertEqual((schema_dir / "org.gnome.shell.extensions.pop-shell.gschema.xml").read_text(), "pop")
+            dock_schema = self._schema("org.gnome.shell.extensions.dash-to-dock")
+            pop_schema = self._schema("org.gnome.shell.extensions.pop-shell")
+            self.assertEqual((schema_dir / "org.gnome.shell.extensions.dash-to-dock.gschema.xml").read_text(), dock_schema)
+            self.assertEqual((schema_dir / "org.gnome.shell.extensions.pop-shell.gschema.xml").read_text(), pop_schema)
+            self.assertTrue((schema_dir / "gschemas.compiled").is_file())
             self.assertFalse((schema_dir / "org.example.gschema.xml").exists())
             icon = target / "usr/share/icons/02-OS/scalable/apps/a.svg"
             self.assertTrue(icon.is_symlink())
             self.assertEqual(icon.readlink(), Path("b.svg"))
-            self.assertFalse((target / "usr/bin/02-agentd").exists())
-            self.assertFalse((target / "usr/share/backgrounds/02os").exists())
             for rel in forbidden:
                 self.assertFalse((target / rel).exists(), rel)
             self.assertFalse((target / "etc/hostname").exists())
@@ -157,9 +220,10 @@ class OSProfileTests(unittest.TestCase):
                 [str(provision), str(bare_target)],
                 capture_output=True, text=True, timeout=30, env=env,
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("required 02_OS file is missing", result.stderr)
             self.assertFalse((bare_target / "usr/bin/02").exists())
-            self.assertEqual((bare_target / "usr/share/applications/02os-install.desktop").read_text(), "desktop")
+            self.assertFalse((bare_target / "usr/share/applications/02os-install.desktop").exists())
 
     def test_provisioner_refuses_symlink_outside_source(self):
         provision = OVERLAY / "usr/local/bin/02os-provision"
@@ -194,27 +258,61 @@ class OSProfileTests(unittest.TestCase):
             self.assertFalse((nested_target / "usr/share/icons/02-OS/ok.txt").exists())
             self.assertFalse((nested_target / "usr/share/icons/02-OS/bad").exists())
 
+    def _schema(self, schema_id):
+        path = "/" + schema_id.replace(".", "/") + "/"
+        return (
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<schemalist>\n"
+            f"  <schema id=\"{schema_id}\" path=\"{path}\">\n"
+            "    <key name=\"marker\" type=\"s\">\n"
+            "      <default>'02os'</default>\n"
+            "      <summary>Marker</summary>\n"
+            "    </key>\n"
+            "  </schema>\n"
+            "</schemalist>\n"
+        )
+
     def _write_provision_fixture(self, source, include_runtime):
-        if include_runtime:
-            bindir = source / "usr/bin"
-            bindir.mkdir(parents=True)
-            (bindir / "02").write_text("runtime")
-            (bindir / "02agent").symlink_to("02")
         desktop = source / "usr/share/applications/02os-install.desktop"
         desktop.parent.mkdir(parents=True)
         desktop.write_text("desktop")
+        if not include_runtime:
+            return
+        bindir = source / "usr/bin"
+        bindir.mkdir(parents=True)
+        (bindir / "02").write_text("runtime")
+        (bindir / "02-agentd").write_text("daemon")
+        (bindir / "02agent").symlink_to("02")
+        launcher = source / "usr/local/bin/pop-launcher"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text("launcher")
+        for ext in ("dash-to-dock@micxgx.gmail.com", "pop-shell@system76.com"):
+            ext_dir = source / "usr/share/gnome-shell/extensions" / ext
+            ext_dir.mkdir(parents=True)
+            (ext_dir / "extension.js").write_text("ext")
         apps = source / "usr/share/icons/02-OS/scalable/apps"
         apps.mkdir(parents=True)
+        (source / "usr/share/icons/02-OS/index.theme").write_text("[Icon Theme]\nName=02-OS\nDirectories=scalable/apps\n")
         (apps / "b.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
         (apps / "a.svg").symlink_to("b.svg")
+        wallpaper = source / "usr/share/backgrounds/02os/desktop.jpg"
+        wallpaper.parent.mkdir(parents=True)
+        wallpaper.write_text("jpg")
         schema_dir = source / "usr/share/glib-2.0/schemas"
         schema_dir.mkdir(parents=True)
         (schema_dir / "org.example.gschema.xml").write_text("<schemalist/>")
-        (schema_dir / "org.gnome.shell.extensions.dash-to-dock.gschema.xml").write_text("dock")
-        (schema_dir / "org.gnome.shell.extensions.pop-shell.gschema.xml").write_text("pop")
+        (schema_dir / "org.gnome.shell.extensions.dash-to-dock.gschema.xml").write_text(
+            self._schema("org.gnome.shell.extensions.dash-to-dock")
+        )
+        (schema_dir / "org.gnome.shell.extensions.pop-shell.gschema.xml").write_text(
+            self._schema("org.gnome.shell.extensions.pop-shell")
+        )
         dconf = source / "etc/dconf/db/local.d/00-02os"
         dconf.parent.mkdir(parents=True)
         dconf.write_text("dconf")
+        (source / "etc/dconf/profile").mkdir(parents=True)
+        (source / "etc/dconf/profile/user").write_text("user-db:user\nsystem-db:local\n")
+        (source / "etc/dconf/db/local").write_bytes(b"db")
         provenance = source / "usr/lib/02-agent/SOURCE_REVISION"
         provenance.parent.mkdir(parents=True)
         provenance.write_text("rev\n")
