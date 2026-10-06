@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copy the 02_OS allowlist from the live overlay into an installed system.
-# Live-only paths (sudoers, greetd, sshd, the live user) are not on the list.
+# Live-only paths (sudoers, greeter configuration, sshd, the live user) are not on the list.
 set -euo pipefail
 
 usage() {
@@ -108,6 +108,8 @@ required=(
   usr/share/gnome-shell/extensions/compiz-windows-effect@hermes83.github.com
   usr/share/icons/02-OS
   usr/share/backgrounds/02os
+  usr/share/plymouth/themes/02-turn-ripple
+  etc/plymouth/plymouthd.conf
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.pop-shell.gschema.xml
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.flourish.gschema.xml

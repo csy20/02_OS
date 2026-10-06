@@ -219,6 +219,21 @@ class OSProfileTests(unittest.TestCase):
             class Installation:
                 def __init__(self):
                     self.target = "/mnt/02os-target"
+                    self._hooks = ["base", "udev", "kms", "keyboard", "filesystems"]
+                    self._kernel_params = ["root=UUID=installed-root"]
+                    self.packages = []
+                    self.chroot_calls = []
+                    self.initramfs_calls = []
+
+                def add_additional_packages(self, packages):
+                    self.packages.extend(packages)
+
+                def arch_chroot(self, command):
+                    self.chroot_calls.append(command)
+
+                def mkinitcpio(self, flags):
+                    self.initramfs_calls.append(flags)
+                    return True
 
             installation = Installation()
             plugin.on_install(installation)
@@ -232,6 +247,10 @@ class OSProfileTests(unittest.TestCase):
                 ["/usr/local/bin/02os-provision", "/mnt/02os-target"],
             ],
         )
+        self.assertEqual(installation.packages, ["plymouth"])
+        self.assertEqual(installation._kernel_params, ["root=UUID=installed-root", "quiet", "splash"])
+        self.assertEqual(installation.chroot_calls, ["plymouth-set-default-theme 02-turn-ripple"] * 2)
+        self.assertEqual(installation.initramfs_calls, [["-P"], ["-P"]])
 
     def test_agentd_user_unit_is_not_ignored(self):
         unit = OVERLAY / "usr/lib/systemd/user/02-agentd.service"
@@ -273,6 +292,9 @@ class OSProfileTests(unittest.TestCase):
             self.assertEqual((target / "etc/dconf/db/local.d/00-02os").read_text(), "dconf")
             self.assertEqual((target / "etc/dconf/profile/user").read_text(), "user-db:user\nsystem-db:local\n")
             self.assertEqual((target / "usr/share/backgrounds/02os/desktop.jpg").read_text(), "jpg")
+            self.assertEqual((target / "usr/share/plymouth/themes/02-turn-ripple/02-turn-ripple.plymouth").read_text(), "theme")
+            self.assertEqual((target / "etc/plymouth/plymouthd.conf").read_text(), "[Daemon]\nTheme=02-turn-ripple\n")
+            self.assertFalse((target / "etc/mkinitcpio.conf.d/archiso.conf").exists())
             schema_dir = target / "usr/share/glib-2.0/schemas"
             for schema_id in EXTENSIONS.values():
                 self.assertEqual((schema_dir / f"{schema_id}.gschema.xml").read_text(), self._schema(schema_id))
@@ -311,6 +333,27 @@ class OSProfileTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(uuid, result.stderr)
                 self.assertFalse((target / "usr/bin/02").exists())
+
+    def test_provisioner_preserves_installed_boot_and_login_configuration(self):
+        provision = OVERLAY / "usr/local/bin/02os-provision"
+        with tempfile.TemporaryDirectory(prefix="02os-target-config-") as tmp:
+            source, target = Path(tmp) / "source", Path(tmp) / "target"
+            self._write_provision_fixture(source, include_runtime=True)
+            self._write_forbidden_live_paths(source)
+            preserved = {
+                "etc/gdm/custom.conf": "[daemon]\nAutomaticLoginEnable=False\n# installed account configuration\n",
+                "etc/mkinitcpio.conf": "HOOKS=(base systemd kms keyboard sd-encrypt filesystems)\n",
+                "boot/loader/entries/arch.conf": "options root=UUID=target rd.luks.name=encrypted=root\n",
+            }
+            for rel, content in preserved.items():
+                path = target / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            result = subprocess.run([str(provision), "--source", str(source), "--target", str(target)],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for rel, content in preserved.items():
+                self.assertEqual((target / rel).read_text(), content, rel)
 
     def test_provisioner_refuses_symlink_outside_source(self):
         provision = OVERLAY / "usr/local/bin/02os-provision"
@@ -386,6 +429,12 @@ class OSProfileTests(unittest.TestCase):
         wallpaper = source / "usr/share/backgrounds/02os/desktop.jpg"
         wallpaper.parent.mkdir(parents=True)
         wallpaper.write_text("jpg")
+        theme = source / "usr/share/plymouth/themes/02-turn-ripple/02-turn-ripple.plymouth"
+        theme.parent.mkdir(parents=True)
+        theme.write_text("theme")
+        plymouth_config = source / "etc/plymouth/plymouthd.conf"
+        plymouth_config.parent.mkdir(parents=True)
+        plymouth_config.write_text("[Daemon]\nTheme=02-turn-ripple\n")
         schema_dir = source / "usr/share/glib-2.0/schemas"
         schema_dir.mkdir(parents=True)
         (schema_dir / "org.example.gschema.xml").write_text("<schemalist/>")
@@ -411,17 +460,22 @@ class OSProfileTests(unittest.TestCase):
         forbidden = [
             "etc/sudoers.d/01-live",
             "etc/greetd/config.toml",
+            "etc/gdm/custom.conf",
             "etc/pam.d/greetd",
             "etc/pam.d/02os-graphical-login",
             "etc/sysusers.d/02os.conf",
             "etc/systemd/system/02os-ensure-live-user.service",
             "etc/systemd/system/graphical.target.wants/02os-ensure-live-user.service",
             "etc/systemd/system/graphical.target.wants/greetd.service",
+            "etc/systemd/system/display-manager.service",
+            "etc/systemd/system/graphical.target.wants/gdm.service",
+            "etc/systemd/system/systemd-time-wait-sync.service.d/live-offline.conf",
             "etc/ssh/sshd_config.d/10-archiso.conf",
             "etc/polkit-1/rules.d/10-live-power.rules",
             "usr/local/bin/02os-ensure-live-user",
             "usr/local/bin/02os-configure-greetd",
             "etc/hostname",
+            "etc/mkinitcpio.conf.d/archiso.conf",
         ]
         for rel in forbidden:
             path = source / rel

@@ -93,7 +93,10 @@ For complete documentation:
 | **Audio / Net** | PipeWire + NetworkManager (no duplicate network stacks) |
 | **Agent Runtime** | `02` CLI (alias `02agent`) + `02-agentd` user daemon pre-installed and enabled |
 
-Live session user is **`live`** (autologin, password **`live`**). The desktop does **not** run as root. Use that password on the lock screen or for `sudo` commands.
+The live image boots to GNOME's native login screen. Sign in as **`live`** with
+password **`live`**; use the same password to unlock the session or for `sudo`.
+The desktop runs as the unprivileged live account. Earlier live images used
+autologin; new builds require sign-in after the boot animation.
 
 See [Desktop motion](docs/desktop-motion.md) for settings, package versions and maintenance instructions.
 These effects ship in new builds from this source. The previously tested
@@ -158,7 +161,7 @@ These effects ship in new builds from this source. The previously tested
 │   ├── pacman.conf
 │   └── airootfs/              # Live filesystem overlay:
 │       ├── etc/dconf/         # Desktop defaults and keybindings
-│       ├── etc/greetd/        # Greetd autologin configuration
+│       ├── etc/gdm/           # Native GNOME login screen; live autologin disabled
 │       ├── etc/skel/          # User default profile and GTK settings
 │       ├── etc/systemd/user/  # Enabled user services (02-agentd.service)
 │       ├── etc/sysusers.d/    # Declarative live user creation
