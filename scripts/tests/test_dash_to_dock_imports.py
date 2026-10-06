@@ -1,4 +1,4 @@
-"""Dash-to-dock relative imports must point at files shipped in the overlay."""
+"""Bundled desktop extensions must ship their relative JavaScript imports."""
 
 import re
 import unittest
@@ -7,12 +7,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXT = ROOT / "profile/airootfs/usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com"
-IMPORT_RE = re.compile(r"""from\s*(['"])(\./[^'"]+)\1""")
+IMPORT_RE = re.compile(r"""from\s*(['"])(\.{1,2}/[^'"]+)\1""")
 
 
 class DashToDockImportTests(unittest.TestCase):
     def test_relative_imports_resolve_to_files(self):
-        scripts = sorted(EXT.rglob("*.js"))
+        scripts = sorted(EXT.parent.rglob("*.js"))
         self.assertGreater(len(scripts), 0)
         found = 0
         for path in scripts:
@@ -26,7 +26,7 @@ class DashToDockImportTests(unittest.TestCase):
                     candidates.append(Path(str(target) + ".js"))
                 self.assertTrue(
                     any(candidate.is_file() for candidate in candidates),
-                    f"{path.relative_to(EXT)} imports missing {spec}",
+                    f"{path.relative_to(EXT.parent)} imports missing {spec}",
                 )
         self.assertGreater(found, 0)
 

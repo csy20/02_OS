@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Derive the graphical PAM session stack from the installed distro's login stack.
+# The optional directory makes the transformation testable without touching PAM.
+set -euo pipefail
+
+pam_dir="${1:-/etc/pam.d}"
+system_login="${pam_dir}/system-login"
+greetd="${pam_dir}/greetd"
+session_include='^session[[:space:]]+include[[:space:]]+(system-local-login|02os-graphical-login)[[:space:]]*$'
+systemd_session='^-?session[[:space:]]+[^[:space:]]+[[:space:]]+pam_systemd\.so([[:space:]]|$)'
+
+if [[ ! -f "${system_login}" || ! -f "${greetd}" ]] ||
+   ! grep -Eq "${systemd_session}" "${system_login}" ||
+   ! grep -Eq "${session_include}" "${greetd}"; then
+  echo "ERROR: unsupported greetd/system-login PAM configuration in ${pam_dir}" >&2
+  exit 1
+fi
+
+# Set the type before pam_systemd creates the session. Exporting it later from
+# gnome-session cannot change logind's tty session into a graphical session.
+temporary="$(mktemp -d "${pam_dir}/.02os-graphical-login.XXXXXX")"
+trap 'rm -rf -- "${temporary}"' EXIT
+sed -E "/${systemd_session}/{s/[[:space:]]+type=[^[:space:]]+//g;s/\$/ type=wayland/;}" \
+  "${system_login}" > "${temporary}/02os-graphical-login"
+sed -E "s/${session_include}/session    include      02os-graphical-login/" \
+  "${greetd}" > "${temporary}/greetd"
+chmod 644 "${temporary}/02os-graphical-login" "${temporary}/greetd"
+mv -- "${temporary}/02os-graphical-login" "${pam_dir}/02os-graphical-login"
+mv -- "${temporary}/greetd" "${greetd}"

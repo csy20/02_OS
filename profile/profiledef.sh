@@ -25,6 +25,7 @@ file_permissions=(
   ["/usr/local/bin/Installation_guide"]="0:0:755"
   ["/usr/local/bin/livecd-sound"]="0:0:755"
   ["/usr/local/bin/02os-gnome-session"]="0:0:755"
+  ["/usr/local/bin/02os-configure-greetd"]="0:0:755"
   ["/usr/local/bin/pop-shell-shortcuts"]="0:0:755"
   ["/usr/local/bin/02os-ensure-live-user"]="0:0:755"
   ["/usr/local/bin/02os-install"]="0:0:755"

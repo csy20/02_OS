@@ -84,7 +84,8 @@ For complete documentation:
 | Piece | What you get |
 | :--- | :--- |
 | **Desktop Environment** | GNOME Shell 50 + Pop Shell (optional tiling toggle with `Super+Y`) |
-| **Dock** | Dash-to-Dock — Centered, dynamic floating dock with pinned favorites and trash |
+| **Dock** | Dash to Dock + Flourish — Centered dock with smooth hover magnification and a single app launch bounce |
+| **Window motion** | Gentle jelly effect while dragging windows; honors GNOME's animation setting |
 | **Theme** | adw-gtk3-dark, Capitaine cursors, Inter 11 |
 | **Icons** | **02-OS** — Custom handcrafted glassmorphic vector icon theme (70+ scalable SVGs) |
 | **Terminal** | GNOME Console (`org.gnome.Console`) |
@@ -93,6 +94,10 @@ For complete documentation:
 | **Agent Runtime** | `02` CLI (alias `02agent`) + `02-agentd` user daemon pre-installed and enabled |
 
 Live session user is **`live`** (autologin, password **`live`**). The desktop does **not** run as root. Use that password on the lock screen or for `sudo` commands.
+
+See [Desktop motion](docs/desktop-motion.md) for settings, package versions and maintenance instructions.
+These effects ship in new builds from this source. The previously tested
+`2026.10.01` ISO predates them; pushing source changes does not update an existing ISO.
 
 ---
 
