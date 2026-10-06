@@ -11,7 +11,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
 };
 var _System_executor;
 export function entity_eq(a, b) {
-    return a[0] == b[0] && b[1] == b[1];
+    return a[0] == b[0] && a[1] == b[1];
 }
 export function entity_new(pos, gen) {
     return [pos, gen];
@@ -116,24 +116,34 @@ export class World {
         }
     }
     create_entity() {
-        let slot = this.free_slots.pop();
-        if (slot) {
-            var entity = this.entities_[slot];
-            entity[1] += 1;
+        const slot = this.free_slots.pop();
+        // Slot 0 is a live index; only a missing pop() result means the pool is empty.
+        if (slot !== undefined) {
+            const previous = this.entities_[slot];
+            const generation = previous ? previous[1] + 1 : 0;
+            const entity = entity_new(slot, generation);
+            this.entities_[slot] = entity;
+            return entity;
         }
-        else {
-            var entity = entity_new(this.capacity, 0);
-            this.entities_.push(entity);
-            this.tags_.push(new Set());
-        }
+        const entity = entity_new(this.capacity, 0);
+        this.entities_.push(entity);
+        this.tags_.push(new Set());
         return entity;
     }
     delete_entity(entity) {
-        this.tags(entity).clear();
+        const slot = entity[0];
+        const current = this.entities_[slot];
+        if (!current || current[1] !== entity[1])
+            return;
+        if (this.free_slots.indexOf(slot) !== -1)
+            return;
+        const tags = this.tags_[slot];
+        if (tags)
+            tags.clear();
         for (const storage of this.storages) {
             storage.remove(entity);
         }
-        this.free_slots.push(entity[0]);
+        this.free_slots.push(slot);
     }
     add_tag(entity, tag) {
         this.tags(entity).add(tag);

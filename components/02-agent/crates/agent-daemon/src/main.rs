@@ -151,11 +151,70 @@ fn main() -> Result<()> {
                                 }
                             };
 
-                            let method = req_val["method"].as_str().unwrap_or("");
-                            let id = req_val.get("id").cloned().unwrap_or(json!(null));
+                            if !req_val.is_object() {
+                                let err = json!({
+                                    "jsonrpc": "2.0",
+                                    "id": null,
+                                    "error": { "code": -32600, "message": "Invalid Request" }
+                                });
+                                let _ = writeln!(writer, "{err}");
+                                line.clear();
+                                continue;
+                            }
+
+                            let has_id = req_val
+                                .as_object()
+                                .map(|obj| obj.contains_key("id"))
+                                .unwrap_or(false);
+                            let method = req_val["method"].as_str().unwrap_or("").to_string();
+                            let jsonrpc_ok =
+                                req_val.get("jsonrpc").and_then(|v| v.as_str()) == Some("2.0");
+                            let params_ok = match req_val.get("params") {
+                                None => true,
+                                Some(params) if params.is_array() || params.is_object() => true,
+                                Some(_) => false,
+                            };
+
+                            // No id member: notification. Never write a response,
+                            // including unknown methods and bad versions.
+                            if !has_id {
+                                if jsonrpc_ok && params_ok && !method.is_empty() {
+                                    match method.as_str() {
+                                        "daemon/watch" => {
+                                            let path_str =
+                                                req_val["params"]["path"].as_str().unwrap_or("");
+                                            let _ = watcher_conn.add(PathBuf::from(path_str));
+                                        }
+                                        "daemon/unwatch" => {
+                                            let path_str =
+                                                req_val["params"]["path"].as_str().unwrap_or("");
+                                            let _ = watcher_conn.remove(&PathBuf::from(path_str));
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                line.clear();
+                                continue;
+                            }
+
+                            let id_value = req_val.get("id").cloned().unwrap_or(json!(null));
+                            let id_ok =
+                                id_value.is_string() || id_value.is_number() || id_value.is_null();
+                            let id = if id_ok { id_value } else { json!(null) };
+
+                            if !jsonrpc_ok || !id_ok || !params_ok || method.is_empty() {
+                                let err = json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": { "code": -32600, "message": "Invalid Request" }
+                                });
+                                let _ = writeln!(writer, "{err}");
+                                line.clear();
+                                continue;
+                            }
 
                             // Daemon management extension methods
-                            let response = match method {
+                            let response = match method.as_str() {
                                 "daemon/watch" => {
                                     let path_str = req_val["params"]["path"].as_str().unwrap_or("");
                                     let path = PathBuf::from(path_str);
@@ -176,17 +235,27 @@ fn main() -> Result<()> {
                                         "result": { "removed": removed }
                                     }))
                                 }
-                                "daemon/list_watched" => {
-                                    let list = watcher_conn.list();
-                                    Some(json!({
+                                "daemon/list_watched" => match watcher_conn.list() {
+                                    Ok(list) => Some(json!({
                                         "jsonrpc": "2.0",
                                         "id": id,
                                         "result": { "repositories": list }
-                                    }))
-                                }
+                                    })),
+                                    Err(err) => Some(json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "error": { "code": -32000, "message": err.to_string() }
+                                    })),
+                                },
                                 _ => {
                                     // Standard MCP JSON-RPC delegation
-                                    let watched = watcher_conn.list();
+                                    let watched = match watcher_conn.list() {
+                                        Ok(list) => list,
+                                        Err(err) => {
+                                            eprintln!("02-agentd: watch list: {err}");
+                                            Vec::new()
+                                        }
+                                    };
                                     let repo_path = resolve_mcp_repo_path(
                                         &req_val,
                                         &mut session_repo,
@@ -195,11 +264,7 @@ fn main() -> Result<()> {
                                     );
 
                                     let server = McpServer::new(repo_path);
-                                    if let Ok(rpc_req) = serde_json::from_value(req_val) {
-                                        server.handle_request(rpc_req).map(|resp| json!(resp))
-                                    } else {
-                                        None
-                                    }
+                                    server.handle_message(req_val).map(|resp| json!(resp))
                                 }
                             };
 

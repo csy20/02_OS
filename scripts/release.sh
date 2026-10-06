@@ -9,7 +9,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROFILE_DIR="${REPO_ROOT}/profile"
-OUT_DIR="${REPO_ROOT}/out"
+# Tests set these so a stub build can write into a disposable directory.
+# Unset, release uses this repo's out/ and build.sh.
+OUT_DIR="${RELEASE_OUT_DIR:-${REPO_ROOT}/out}"
+export OUT_DIR
+BUILD_SCRIPT="${RELEASE_BUILD_SCRIPT:-${REPO_ROOT}/build.sh}"
 
 REUSE_ISO=0
 FORCE_TAG=0
@@ -25,12 +29,74 @@ for arg in "$@"; do
     esac
 done
 
+# ISO_PATH is global. A fresh build must be the new name, or the single ISO
+# whose bytes changed, and its .commit stamp must be HEAD. Untouched older
+# images in out/ are never selected. --reuse-iso stays count-strict.
+select_fresh_iso() {
+    declare -A before=()
+    local iso name mtime
+    if [[ -d "${OUT_DIR}" ]]; then
+        while IFS= read -r iso; do
+            [[ -n "${iso}" ]] || continue
+            name="$(basename -- "${iso}")"
+            before["${name}"]="$(stat -c '%Y.%N' -- "${iso}")"
+        done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
+    fi
+
+    echo "=== [Step 1/5] Building 02_OS Live ISO ==="
+    "${BUILD_SCRIPT}"
+
+    if [[ ! -d "${OUT_DIR}" ]]; then
+        echo "ERROR: build did not create ${OUT_DIR}" >&2
+        exit 1
+    fi
+
+    local -a new_isos=() changed_isos=()
+    while IFS= read -r iso; do
+        [[ -n "${iso}" ]] || continue
+        name="$(basename -- "${iso}")"
+        mtime="$(stat -c '%Y.%N' -- "${iso}")"
+        if [[ -z "${before[${name}]+x}" ]]; then
+            new_isos+=("${iso}")
+        elif [[ "${before[${name}]}" != "${mtime}" ]]; then
+            changed_isos+=("${iso}")
+        fi
+    done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
+
+    local replaced=0
+    if [[ "${#new_isos[@]}" -eq 1 && "${#changed_isos[@]}" -eq 0 ]]; then
+        ISO_PATH="${new_isos[0]}"
+    elif [[ "${#new_isos[@]}" -eq 0 && "${#changed_isos[@]}" -eq 1 ]]; then
+        ISO_PATH="${changed_isos[0]}"
+        replaced=1
+    else
+        echo "ERROR: could not identify the ISO produced by this build in ${OUT_DIR} (new: ${#new_isos[@]}, replaced: ${#changed_isos[@]})" >&2
+        exit 1
+    fi
+
+    local head_now stamp_file stamp
+    head_now="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
+    stamp_file="${ISO_PATH}.commit"
+    if [[ -f "${stamp_file}" ]]; then
+        stamp="$(cat -- "${stamp_file}")"
+        if [[ "${stamp}" != "${head_now}" ]]; then
+            echo "ERROR: ${stamp_file} does not match HEAD ${head_now}" >&2
+            exit 1
+        fi
+    elif [[ "${replaced}" -eq 1 ]]; then
+        echo "ERROR: replaced ISO ${ISO_PATH} has no .commit stamp matching HEAD ${head_now}" >&2
+        exit 1
+    else
+        printf '%s\n' "${head_now}" > "${stamp_file}"
+    fi
+}
+
 if [[ "${REUSE_ISO}" -eq 1 ]]; then
     if [[ ! -d "${OUT_DIR}" ]]; then
         echo "ERROR: --reuse-iso requires ${OUT_DIR}" >&2
         exit 1
     fi
-    mapfile -t ISO_CANDIDATES < <(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" -print | sort)
+    mapfile -t ISO_CANDIDATES < <(find "${OUT_DIR}" -maxdepth 1 -type f -name "02_OS-*.iso" -print | sort)
     if [[ "${#ISO_CANDIDATES[@]}" -ne 1 ]]; then
         echo "ERROR: --reuse-iso needs exactly one 02_OS-*.iso in ${OUT_DIR} (found ${#ISO_CANDIDATES[@]})" >&2
         exit 1
@@ -44,15 +110,7 @@ if [[ "${REUSE_ISO}" -eq 1 ]]; then
     fi
     echo "Reusing ISO ${ISO_PATH} built from ${HEAD_NOW}."
 else
-    echo "=== [Step 1/5] Building 02_OS Live ISO ==="
-    "${REPO_ROOT}/build.sh"
-    mapfile -t ISO_CANDIDATES < <(find "${OUT_DIR}" -maxdepth 1 -name "02_OS-*.iso" -print | sort)
-    if [[ "${#ISO_CANDIDATES[@]}" -ne 1 ]]; then
-        echo "ERROR: expected exactly one 02_OS-*.iso in ${OUT_DIR} (found ${#ISO_CANDIDATES[@]})" >&2
-        exit 1
-    fi
-    ISO_PATH="${ISO_CANDIDATES[0]}"
-    git -C "${REPO_ROOT}" rev-parse HEAD > "${ISO_PATH}.commit"
+    select_fresh_iso
 fi
 
 if [[ -z "${ISO_PATH:-}" || ! -f "${ISO_PATH}" ]]; then
@@ -70,6 +128,13 @@ echo " Starting 02_OS Release: ${RELEASE_TITLE} (${TAG_NAME})"
 echo " Repo: ${REPO_ROOT}"
 echo " ISO:  ${ISO_PATH} ($(du -h "${ISO_PATH}" | cut -f1))"
 echo "============================================================"
+echo "Selected ISO: ${ISO_PATH}"
+
+# RELEASE_DRY_RUN=1 stops before split, git tag, and gh.
+if [[ "${RELEASE_DRY_RUN:-}" == "1" ]]; then
+    echo "RELEASE_DRY_RUN=1: skipping split, tag, and GitHub publish"
+    exit 0
+fi
 
 # Step 2: Generate Checksums & Split ISO
 echo "=== [Step 2/5] Splitting ISO into 1.4GB Parts & Computing Checksums ==="

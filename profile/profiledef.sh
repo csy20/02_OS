@@ -37,4 +37,6 @@ file_permissions=(
   ["/usr/bin/02agent"]="0:0:755"
   ["/usr/bin/02-agentd"]="0:0:755"
   ["/usr/lib/systemd/user/02-agentd.service"]="0:0:644"
+  ["/usr/lib/02-agent/prepare-storage.sh"]="0:0:755"
+  ["/usr/lib/systemd/user-generators/02-agent-storage"]="0:0:755"
 )

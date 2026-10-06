@@ -1,0 +1,45 @@
+#!/bin/sh
+# User generator: drop-in ReadWritePaths for the resolved 02-agent
+# data, cache, and config directories. Writes unit files only.
+# Arguments follow systemd.generator(7): normal-dir [early-dir] [late-dir].
+set -eu
+
+out="${1:-}"
+if [ -z "$out" ]; then
+  exit 0
+fi
+
+resolve() {
+  xdg="$1"
+  fallback="$2"
+  if [ -n "$xdg" ]; then
+    printf '%s/02-agent' "${xdg%/}"
+  elif [ -n "${HOME:-}" ]; then
+    printf '%s/%s/02-agent' "$HOME" "$fallback"
+  fi
+}
+
+lines=""
+add_path() {
+  case "$1" in
+    /*)
+      lines="${lines}ReadWritePaths=$1
+"
+      ;;
+  esac
+}
+
+add_path "$(resolve "${XDG_DATA_HOME:-}" ".local/share")"
+add_path "$(resolve "${XDG_CACHE_HOME:-}" ".cache")"
+add_path "$(resolve "${XDG_CONFIG_HOME:-}" ".config")"
+lines="${lines}ReadWritePaths=%t
+"
+
+dir="$out/02-agentd.service.d"
+mkdir -p -- "$dir"
+tmp="$dir/.10-xdg-storage.conf.tmp"
+cat > "$tmp" <<EOF
+[Service]
+$lines
+EOF
+mv -- "$tmp" "$dir/10-xdg-storage.conf"

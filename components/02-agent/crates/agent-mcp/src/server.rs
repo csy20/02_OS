@@ -1,7 +1,7 @@
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::tools::{call_tool, list_tools};
 use agent_core::Result;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
@@ -14,9 +14,45 @@ impl McpServer {
         Self { repo_root }
     }
 
-    /// Process a single incoming JSON-RPC request and return response if needed.
+    /// Validate a JSON-RPC envelope and dispatch it.
+    ///
+    /// A message with no `id` member is a notification and produces no response,
+    /// including unknown methods and bad versions. Parse errors are handled by
+    /// `run_stdio` before this is called.
+    pub fn handle_message(&self, value: Value) -> Option<JsonRpcResponse> {
+        let Some(obj) = value.as_object() else {
+            return Some(invalid_request(Value::Null));
+        };
+        if !obj.contains_key("id") {
+            return None;
+        }
+        let id_val = obj.get("id").cloned().unwrap_or(Value::Null);
+        let id_ok = id_val.is_null() || id_val.is_string() || id_val.is_number();
+        let response_id = if id_ok { id_val.clone() } else { Value::Null };
+        let jsonrpc_ok = obj.get("jsonrpc").and_then(|v| v.as_str()) == Some("2.0");
+        let method = obj.get("method").and_then(|m| m.as_str());
+        let params_ok = match obj.get("params") {
+            None => true,
+            Some(params) if params.is_array() || params.is_object() => true,
+            Some(_) => false,
+        };
+        if !jsonrpc_ok || !id_ok || !params_ok || method.map(|m| m.is_empty()).unwrap_or(true) {
+            return Some(invalid_request(response_id));
+        }
+        self.handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(id_val),
+            method: method.unwrap().to_string(),
+            params: obj.get("params").cloned(),
+        })
+    }
+
+    /// Process a single incoming JSON-RPC request and return a response if needed.
     pub fn handle_request(&self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
-        let id = req.id.clone().unwrap_or(json!(null));
+        let id = req.id.clone()?;
+        if req.jsonrpc != "2.0" || req.method.is_empty() {
+            return Some(invalid_request(id));
+        }
 
         match req.method.as_str() {
             "initialize" => {
@@ -33,10 +69,7 @@ impl McpServer {
                 Some(JsonRpcResponse::success(id, result))
             }
 
-            "notifications/initialized" => {
-                // Notifications do not receive responses in JSON-RPC
-                None
-            }
+            "notifications/initialized" => None,
 
             "ping" => Some(JsonRpcResponse::success(id, json!({}))),
 
@@ -80,18 +113,18 @@ impl McpServer {
                 continue;
             }
 
-            let request: JsonRpcRequest = match serde_json::from_str(trimmed) {
-                Ok(req) => req,
-                Err(e) => {
+            let value: Value = match serde_json::from_str(trimmed) {
+                Ok(value) => value,
+                Err(err) => {
                     let err_resp =
-                        JsonRpcResponse::error(json!(null), -32700, format!("Parse error: {}", e));
+                        JsonRpcResponse::error(json!(null), -32700, format!("Parse error: {err}"));
                     let _ = writeln!(writer, "{}", serde_json::to_string(&err_resp)?);
                     let _ = writer.flush();
                     continue;
                 }
             };
 
-            if let Some(resp) = self.handle_request(request) {
+            if let Some(resp) = self.handle_message(value) {
                 let resp_str = serde_json::to_string(&resp)?;
                 writeln!(writer, "{}", resp_str)?;
                 writer.flush()?;
@@ -100,4 +133,8 @@ impl McpServer {
 
         Ok(())
     }
+}
+
+fn invalid_request(id: Value) -> JsonRpcResponse {
+    JsonRpcResponse::error(id, -32600, "Invalid Request".to_string())
 }

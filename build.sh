@@ -54,6 +54,50 @@ echo " Work:    ${WORK_DIR}"
 echo " Cache:   ${PACMAN_CACHE_DIR}"
 echo "============================================================"
 
+# Names and mtimes already in out/, so a later day (or a same-day rewrite)
+# can be told apart from older images this run did not touch.
+snapshot_existing_isos() {
+  declare -gA ISO_MTIME_BEFORE
+  ISO_MTIME_BEFORE=()
+  [[ -d "${OUT_DIR}" ]] || return 0
+  local iso name
+  while IFS= read -r iso; do
+    [[ -n "${iso}" ]] || continue
+    name="$(basename -- "${iso}")"
+    ISO_MTIME_BEFORE["${name}"]="$(stat -c '%Y.%N' -- "${iso}")"
+  done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
+}
+
+# Stamp only the ISO this run created or replaced. Never delete older images.
+identify_built_iso() {
+  local -a new_isos=() changed_isos=()
+  local iso name mtime
+  [[ -d "${OUT_DIR}" ]] || { echo "ERROR: ISO output directory ${OUT_DIR} does not exist" >&2; exit 1; }
+  while IFS= read -r iso; do
+    [[ -n "${iso}" ]] || continue
+    name="$(basename -- "${iso}")"
+    mtime="$(stat -c '%Y.%N' -- "${iso}")"
+    if [[ -z "${ISO_MTIME_BEFORE[${name}]+x}" ]]; then
+      new_isos+=("${iso}")
+    elif [[ "${ISO_MTIME_BEFORE[${name}]}" != "${mtime}" ]]; then
+      changed_isos+=("${iso}")
+    fi
+  done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
+
+  if [[ "${#new_isos[@]}" -eq 1 && "${#changed_isos[@]}" -eq 0 ]]; then
+    ISO_PATH="${new_isos[0]}"
+  elif [[ "${#new_isos[@]}" -eq 0 && "${#changed_isos[@]}" -eq 1 ]]; then
+    ISO_PATH="${changed_isos[0]}"
+  else
+    echo "ERROR: could not identify the ISO this build wrote in ${OUT_DIR} (new: ${#new_isos[@]}, replaced: ${#changed_isos[@]})" >&2
+    exit 1
+  fi
+  printf '%s\n' "${revision}" > "${ISO_PATH}.commit"
+  echo "Built ISO: ${ISO_PATH}"
+}
+
+snapshot_existing_isos
+
 docker run --rm --privileged \
   -e HOST_UID="${HOST_UID}" \
   -e HOST_GID="${HOST_GID}" \
@@ -68,6 +112,8 @@ docker run --rm --privileged \
     pacman -Syu --noconfirm archiso
     mkarchiso -v -w "${WORK_DIR}" -o /out /02_OS
   '
+
+identify_built_iso
 
 echo ""
 echo "============================================================"

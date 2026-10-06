@@ -148,3 +148,147 @@ fn test_go_cpp_typescript_and_dart_parsing() {
         .any(|r| r.kind == ReferenceKind::Tests && r.target_name == "test"));
     assert!(dart_res.symbols.iter().any(|s| s.name == "adds"));
 }
+
+#[test]
+fn same_line_bash_assignments_have_distinct_ids() {
+    let res = CodeExtractor::extract("sample.sh", "X=1; X=2", Language::Bash).unwrap();
+    let ids: Vec<_> = res
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == "X" && symbol.kind == SymbolKind::Variable)
+        .map(|symbol| symbol.id.clone())
+        .collect();
+    assert_eq!(ids.len(), 2, "both assignments should be kept");
+    assert_ne!(ids[0], ids[1]);
+    assert!(ids.iter().all(|id| id.contains("@")));
+    assert_eq!(
+        res.symbols
+            .iter()
+            .filter(|symbol| symbol.name == "X")
+            .map(|symbol| symbol.start_line)
+            .collect::<Vec<_>>(),
+        vec![1, 1]
+    );
+}
+
+#[test]
+fn same_line_rust_modules_keep_distinct_functions() {
+    let code = "mod a { fn f() {} } mod b { fn f() {} }";
+    let res = CodeExtractor::extract("src/same.rs", code, Language::Rust).unwrap();
+    let ids: Vec<_> = res
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == "f")
+        .map(|symbol| symbol.id.clone())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+    assert!(ids.iter().any(|id| id.contains("::a::f@")));
+    assert!(ids.iter().any(|id| id.contains("::b::f@")));
+    assert!(res
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == "f")
+        .all(|symbol| symbol.start_line == 1));
+}
+
+#[test]
+fn same_line_js_methods_have_distinct_ids() {
+    let code = "class A { f() {} } class B { f() {} }";
+    let res = CodeExtractor::extract("same.js", code, Language::JavaScript).unwrap();
+    let ids: Vec<_> = res
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == "f")
+        .map(|symbol| symbol.id.clone())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+    assert!(ids.iter().any(|id| id.contains("::A::f@")));
+    assert!(ids.iter().any(|id| id.contains("::B::f@")));
+}
+
+#[test]
+fn deeply_nested_rust_expression_does_not_abort() {
+    const DEPTH: usize = 5_000;
+    let mut code = String::with_capacity(DEPTH * 2 + 40);
+    code.push_str("fn main() { let _x = ");
+    code.extend(std::iter::repeat_n('(', DEPTH));
+    code.push_str("foo()");
+    code.extend(std::iter::repeat_n(')', DEPTH));
+    code.push_str("; }\n");
+    assert!(
+        code.len() < 100_000,
+        "fixture must stay under a few hundred KB"
+    );
+
+    let res = CodeExtractor::extract("src/deep.rs", &code, Language::Rust).unwrap();
+    assert!(res.symbols.iter().any(|symbol| symbol.name == "main"));
+    assert!(res.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::Calls
+            && reference.target_name == "foo"
+            && reference.source_symbol_name.as_deref() == Some("main")
+    }));
+}
+
+#[test]
+fn import_only_go_module_keeps_references() {
+    let go = "package main\nimport \"fmt\"\n";
+    let res = CodeExtractor::extract("main.go", go, Language::Go).unwrap();
+    assert!(res.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::Imports && reference.target_name.contains("fmt")
+    }));
+}
+
+#[test]
+fn top_level_call_module_keeps_references() {
+    let res = CodeExtractor::extract("main.ts", "foo();\n", Language::TypeScript).unwrap();
+    assert!(res.references.iter().any(|reference| {
+        reference.kind == ReferenceKind::Calls && reference.target_name == "foo"
+    }));
+}
+
+#[test]
+fn rust_method_calls_use_the_method_identifier() {
+    let code = r#"
+        struct A;
+        struct B;
+        impl A {
+            fn f(&self) {}
+            fn call(&self) { self.f(); }
+        }
+        impl B {
+            fn f(&self) {}
+        }
+        fn use_both() {
+            let value = A;
+            value.f();
+            let other = B;
+            other.f();
+        }
+    "#;
+    let res = CodeExtractor::extract("src/methods.rs", code, Language::Rust).unwrap();
+    let calls: Vec<_> = res
+        .references
+        .iter()
+        .filter(|reference| reference.kind == ReferenceKind::Calls)
+        .collect();
+    assert!(calls.len() >= 3);
+    assert!(
+        calls.iter().all(|reference| reference.target_name == "f"),
+        "method calls must not keep the receiver in the target name"
+    );
+    assert!(calls.iter().any(|reference| {
+        reference.target_name == "f" && reference.source_symbol_name.as_deref() == Some("call")
+    }));
+    assert!(calls.iter().any(|reference| {
+        reference.target_name == "f" && reference.source_symbol_name.as_deref() == Some("use_both")
+    }));
+    let methods: Vec<_> = res
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.name == "f")
+        .collect();
+    assert_eq!(methods.len(), 2);
+    assert_ne!(methods[0].id, methods[1].id);
+}

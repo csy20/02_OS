@@ -85,7 +85,7 @@ impl RepoHandle {
         let info = git.info()?;
         let db_path = StoragePaths::repo_db_path(&info.id)?;
         let mut db = IndexDatabase::open(&db_path)?;
-        db.update_repo_info(&info)?;
+        db.note_repo_presence(&info)?;
         Ok(Self {
             root: root.to_path_buf(),
             git,
@@ -98,7 +98,7 @@ impl RepoHandle {
     pub fn open_with_db(root: &Path, mut db: IndexDatabase) -> Result<Self> {
         let git = GitRepo::open(root)?;
         let info = git.info()?;
-        db.update_repo_info(&info)?;
+        db.note_repo_presence(&info)?;
         Ok(Self {
             root: root.to_path_buf(),
             git,
@@ -300,7 +300,10 @@ impl Task for RecordHistory {
 
     fn run(&self, ctx: &mut TaskContext) -> Result<()> {
         for commit in ctx.git.get_recent_commits(20)? {
-            let content = format!("{} {}", commit.short_id, commit.summary);
+            let content = agent_core::SecretPattern::redact(&format!(
+                "{} {}",
+                commit.short_id, commit.summary
+            ));
             let commit_id = commit.id.clone();
             remember_point(
                 ctx,
@@ -520,6 +523,12 @@ impl Task for ProjectGraph {
                 write_edge_with_payload(ctx, &src, &dst, kind, payload.as_deref())?;
             }
         }
+        let keep_ids: Vec<String> = symbols
+            .iter()
+            .map(|symbol| symbol_node_id(&ctx.dataset.id, &symbol.id))
+            .collect();
+        ctx.db
+            .delete_symbol_nodes_not_in(&ctx.dataset.id, &keep_ids)?;
         Ok(())
     }
 }
@@ -694,12 +703,13 @@ impl Task for LinkCommits {
             };
             let node = commit_node_id(&ctx.dataset.id, &commit_id);
             if ctx.ontology.allows_node("commit") {
+                let label = agent_core::SecretPattern::redact(&point.content);
                 ctx.db.upsert_node(
                     ctx.info.id.as_str(),
                     &ctx.dataset.id,
                     &node,
                     "commit",
-                    &point.content,
+                    &label,
                     Some(&point.id),
                 )?;
                 ctx.nodes_written += 1;
@@ -807,22 +817,27 @@ pub fn index_pipeline(
     full: bool,
     extra: &TaskRegistry,
 ) -> Result<AddReport> {
-    let mut ctx = handle.context(
-        None,
-        full,
-        vec![SourceKind::Worktree, SourceKind::Document],
-        None,
-    )?;
-    SyncCatalog.run(&mut ctx)?;
-    RecordFiles.run(&mut ctx)?;
-    run_projection(&mut ctx)?;
-    extra.run(&mut ctx)?;
-    Ok(AddReport {
-        dataset_id: ctx.dataset.id.clone(),
-        files_updated: ctx.files_updated,
-        datapoints_inserted: ctx.datapoints_inserted,
-        datapoints_unchanged: ctx.datapoints_unchanged,
-    })
+    let report = {
+        let mut ctx = handle.context(
+            None,
+            full,
+            vec![SourceKind::Worktree, SourceKind::Document],
+            None,
+        )?;
+        SyncCatalog.run(&mut ctx)?;
+        RecordFiles.run(&mut ctx)?;
+        run_projection(&mut ctx)?;
+        extra.run(&mut ctx)?;
+        AddReport {
+            dataset_id: ctx.dataset.id.clone(),
+            files_updated: ctx.files_updated,
+            datapoints_inserted: ctx.datapoints_inserted,
+            datapoints_unchanged: ctx.datapoints_unchanged,
+        }
+    };
+    let info = handle.info.clone();
+    handle.db.update_repo_info(&info)?;
+    Ok(report)
 }
 
 fn run_projection(ctx: &mut TaskContext) -> Result<()> {
@@ -838,6 +853,16 @@ fn run_projection(ctx: &mut TaskContext) -> Result<()> {
 }
 
 fn project_stages(ctx: &mut TaskContext) -> Result<()> {
+    if ctx.scanned.is_empty() {
+        load_scan(ctx)?;
+    }
+    let keep: Vec<String> = ctx
+        .scanned
+        .iter()
+        .map(|item| item.file.relative_path.clone())
+        .collect();
+    ctx.db
+        .delete_catalog_absent_points(&ctx.dataset.id, &keep)?;
     ProjectGraph.run(ctx)?;
     WriteChunks.run(ctx)?;
     LinkCommits.run(ctx)?;

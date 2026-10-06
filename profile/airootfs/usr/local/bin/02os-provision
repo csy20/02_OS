@@ -157,6 +157,81 @@ require_entry() {
   fi
 }
 
+# The live image keeps Install 02_OS. The installed system does not get a
+# desktop entry whose Exec needs archinstall_plugin.py unless that plugin
+# is already on the target (this allowlist does not copy it).
+launcher_needs_missing_plugin() {
+  local rel="$1"
+  local src="${source_canon}/${rel}"
+  local exec_line plugin_rel
+  [[ "${rel}" == usr/share/applications/*.desktop ]] || return 1
+  [[ -f "${src}" && ! -L "${src}" ]] || return 1
+  exec_line="$(grep -E '^Exec=' -- "${src}" || true)"
+  [[ -n "${exec_line}" ]] || return 1
+  plugin_rel="usr/local/share/02os/archinstall_plugin.py"
+  if [[ "${exec_line}" != *"02os-install"* && "${exec_line}" != *"archinstall_plugin.py"* ]]; then
+    return 1
+  fi
+  if [[ -e "${target_canon}/${plugin_rel}" || -L "${target_canon}/${plugin_rel}" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+compile_installed_dconf() {
+  local db="${target_canon}/etc/dconf/db/local"
+  local keys="${target_canon}/etc/dconf/db/local.d"
+  if ! command -v dconf >/dev/null 2>&1; then
+    echo "ERROR: dconf is required to update installed desktop defaults" >&2
+    exit 1
+  fi
+  dconf compile "${db}" "${keys}"
+}
+
+# Drop the live installer favorite after the keyfile is copied. The compiled
+# system db is rewritten so the installed session does not keep the old value.
+strip_installer_favorite() {
+  local keyfile="${target_canon}/etc/dconf/db/local.d/00-02os"
+  local result
+  [[ -f "${keyfile}" && ! -L "${keyfile}" ]] || return 0
+  if ! grep -q '02os-install.desktop' -- "${keyfile}"; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required to update installed desktop favorites" >&2
+    exit 1
+  fi
+  result="$(python3 - "${keyfile}" <<'PY'
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+pattern = re.compile(r"favorite-apps=\[([^\]]*)\]")
+
+def repl(match):
+    items = [part.strip() for part in match.group(1).split(",") if part.strip()]
+    kept = [part for part in items if part != "'02os-install.desktop'"]
+    if not kept:
+        return "favorite-apps=@as []"
+    return "favorite-apps=[" + ",".join(kept) + "]"
+
+updated, count = pattern.subn(repl, text)
+if count == 0 or updated == text:
+    print("unchanged")
+else:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(updated, encoding="utf-8")
+    tmp.replace(path)
+    print("changed")
+PY
+)"
+  if [[ "${result}" == "changed" ]]; then
+    compile_installed_dconf
+  else
+    echo "ERROR: ${keyfile} still references 02os-install.desktop" >&2
+    exit 1
+  fi
+}
+
 mkdir -p -- "${target_canon}"
 echo "02os-provision: ${source_canon} -> ${target_canon}"
 
@@ -165,8 +240,14 @@ for rel in "${required[@]}"; do
 done
 
 for rel in "${required[@]}" "${optional[@]}"; do
+  if launcher_needs_missing_plugin "${rel}"; then
+    echo "02os-provision: not installing ${rel}; archinstall plugin is not on the target" >&2
+    continue
+  fi
   copy_entry "${rel}"
 done
+
+strip_installer_favorite
 
 schema_dir="${target_canon}/usr/share/glib-2.0/schemas"
 if [[ ! -d "${schema_dir}" ]]; then

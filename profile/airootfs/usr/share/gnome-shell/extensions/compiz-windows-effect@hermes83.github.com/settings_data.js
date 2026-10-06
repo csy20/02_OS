@@ -23,6 +23,31 @@
  */
 'use strict';
 
+export const DEFAULT_SPEEDUP_FACTOR = 12;
+
+export function safe_speedup_divider(value) {
+    const divider = Number(value);
+    if (!Number.isFinite(divider) || !(divider > 0))
+        return DEFAULT_SPEEDUP_FACTOR;
+    return divider;
+}
+
+// Reject a non-finite or non-positive divider before an effect is constructed.
+export function settings_for_effect(settingsData) {
+    const factor = settingsData.SPEEDUP_FACTOR;
+    const current = factor.get();
+    const divider = safe_speedup_divider(current);
+    if (divider === current)
+        return settingsData;
+    return Object.assign(Object.create(Object.getPrototypeOf(settingsData)), settingsData, {
+        SPEEDUP_FACTOR: {
+            key: factor.key,
+            get() { return divider; },
+            set(value) { factor.set(value); },
+        },
+    });
+}
+
 export class SettingsData {
     constructor(settings) {
         this.LAST_VERSION = {

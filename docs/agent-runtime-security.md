@@ -50,6 +50,7 @@ In **02_OS**, `02-agentd` is managed as an unprivileged user service (`02-agentd
 ```ini
 [Service]
 Type=simple
+ExecStartPre=+/usr/lib/02-agent/prepare-storage.sh
 ExecStart=/usr/bin/02-agentd
 Restart=on-failure
 RestartSec=3s
@@ -57,12 +58,13 @@ Environment=RUST_LOG=info
 
 ProtectSystem=strict
 ProtectHome=no
-ReadWritePaths=-%h/.local/share/02-agent -%h/.cache/02-agent -%t
+ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %h/.config/02-agent %t %h
 NoNewPrivileges=true
 ```
 
-- **`ProtectSystem=strict`**: Mounts `/usr`, `/boot`, `/etc`, and system directories read-only.
-- **`ProtectHome=no`**: `no` leaves the home directory writable so the daemon can index repositories there. The data directory `~/.local/share/02-agent` is still created mode `0700`. Paths in `ReadWritePaths` are prefixed with `-` so a missing data or cache directory does not fail the first start.
+- **`ProtectSystem=strict`**: Mounts the whole file system read-only, including `$HOME`. `ProtectHome=no` does not undo that.
+- **`ExecStartPre=+/usr/lib/02-agent/prepare-storage.sh`**: The `+` prefix skips the sandbox and creates the data, cache, and config directories (mode `0700`) before the daemon starts. Those paths honor `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_CONFIG_HOME`, with the usual defaults under `~/.local/share`, `~/.cache`, and `~/.config`. A missing directory is not papered over with a `-` prefix on `ReadWritePaths`.
+- **`ProtectHome=no` and `ReadWritePaths=%h`**: Home stays visible and writable so repositories there can be indexed. Data, cache, config, and `%t` are listed as well. A user generator adds `ReadWritePaths` when those XDG directories sit outside `$HOME`.
 - **`NoNewPrivileges=true`**: Disallows gaining new privileges via `setuid` binaries.
 
 ---

@@ -1,5 +1,6 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+import { exception_applies, literal_rule_field } from '../float_pattern.js';
 const CONF_DIR = GLib.get_user_config_dir() + '/pop-shell';
 export var CONF_FILE = CONF_DIR + '/config.json';
 export const DEFAULT_FLOAT_RULES = [
@@ -54,56 +55,33 @@ export class Config {
         this.log_on_focus = false;
     }
     add_app_exception(wmclass) {
+        const storedClass = literal_rule_field(wmclass);
         for (const r of this.float) {
-            if (r.class === wmclass && r.title === undefined)
+            if (r.class === storedClass && r.title === undefined)
                 return;
         }
-        this.float.push({ class: wmclass });
+        this.float.push({ class: storedClass });
         this.sync_to_disk();
     }
     add_window_exception(wmclass, title) {
+        const storedClass = literal_rule_field(wmclass);
+        const storedTitle = literal_rule_field(title);
         for (const r of this.float) {
-            if (r.class === wmclass && r.title === title)
+            if (r.class === storedClass && r.title === storedTitle)
                 return;
         }
-        this.float.push({ class: wmclass, title });
+        this.float.push({ class: storedClass, title: storedTitle });
         this.sync_to_disk();
     }
     window_shall_float(wclass, title) {
-        for (const rule of this.float.concat(DEFAULT_FLOAT_RULES)) {
-            if (rule.class) {
-                if (!new RegExp(rule.class, 'i').test(wclass)) {
-                    continue;
-                }
-            }
-            if (rule.title) {
-                if (!new RegExp(rule.title, 'i').test(title)) {
-                    continue;
-                }
-            }
-            return rule.disabled ? false : true;
-        }
-        return false;
+        return exception_applies(this.float.concat(DEFAULT_FLOAT_RULES), wclass, title);
     }
     skiptaskbar_shall_hide(meta_window) {
         let wmclass = meta_window.get_wm_class();
         let wmtitle = meta_window.get_title();
         if (!meta_window.is_skip_taskbar())
             return false;
-        for (const rule of this.skiptaskbarhidden.concat(SKIPTASKBAR_EXCEPTIONS)) {
-            if (rule.class) {
-                if (!new RegExp(rule.class, 'i').test(wmclass)) {
-                    continue;
-                }
-            }
-            if (rule.title) {
-                if (!new RegExp(rule.title, 'i').test(wmtitle)) {
-                    continue;
-                }
-            }
-            return rule.disabled ? false : true;
-        }
-        return false;
+        return exception_applies(this.skiptaskbarhidden.concat(SKIPTASKBAR_EXCEPTIONS), wmclass, wmtitle);
     }
     reload() {
         const conf = Config.from_config();

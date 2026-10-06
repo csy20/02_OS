@@ -2,7 +2,7 @@ use crate::db::IndexDatabase;
 use agent_core::{AgentError, EdgeKind, GraphEdge, ReferenceKind, Result, Symbol, SymbolReference};
 use rusqlite::params;
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub enum GraphExportFormat {
     Json,
@@ -456,6 +456,7 @@ impl IndexDatabase {
     }
 
     /// Outgoing walk from `start`, depth-capped. Depth 0 is `start` itself.
+    /// Each node is returned once, at the minimum depth at which it is reached.
     pub fn traverse(
         &self,
         dataset_id: &str,
@@ -469,34 +470,47 @@ impl IndexDatabase {
         }
         let mut stmt = self
             .conn
-            .prepare(
-                r#"
-                WITH RECURSIVE walk(id, depth) AS (
-                    SELECT ?1, 0
-                    UNION ALL
-                    SELECT e.dst_id, walk.depth + 1
-                    FROM graph_edges e
-                    JOIN walk ON e.src_id = walk.id
-                    WHERE e.dataset_id = ?2 AND walk.depth < ?3
-                )
-                SELECT id, MIN(depth) AS depth
-                FROM walk
-                GROUP BY id
-                ORDER BY depth, id
-                "#,
-            )
+            .prepare("SELECT src_id, dst_id FROM graph_edges WHERE dataset_id = ?1")
             .map_err(|e| AgentError::Database(format!("Prepare traversal failed: {}", e)))?;
         let rows = stmt
-            .query_map(params![start, dataset_id, depth as i64], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            .query_map(params![dataset_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|e| AgentError::Database(format!("Traversal query failed: {}", e)))?;
-        let mut found = Vec::new();
+        let mut adjacent: HashMap<String, Vec<String>> = HashMap::new();
         for row in rows {
-            found.push(
-                row.map_err(|e| AgentError::Database(format!("Traversal row failed: {}", e)))?,
-            );
+            let (src, dst) =
+                row.map_err(|e| AgentError::Database(format!("Traversal row failed: {}", e)))?;
+            adjacent.entry(src).or_default().push(dst);
         }
+        drop(stmt);
+
+        let mut best: HashMap<String, usize> = HashMap::new();
+        best.insert(start.to_string(), 0);
+        let mut frontier = vec![start.to_string()];
+        let mut current = 0usize;
+        while current < depth {
+            let mut next = Vec::new();
+            for id in frontier {
+                let Some(neighbors) = adjacent.get(&id) else {
+                    continue;
+                };
+                for dst in neighbors {
+                    if best.contains_key(dst) {
+                        continue;
+                    }
+                    best.insert(dst.clone(), current + 1);
+                    next.push(dst.clone());
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            frontier = next;
+            current += 1;
+        }
+        let mut found: Vec<(String, usize)> = best.into_iter().collect();
+        found.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
         Ok(found)
     }
 
@@ -527,15 +541,120 @@ impl IndexDatabase {
         let nodes = self.list_nodes(dataset_id)?;
         for node in nodes {
             if node.kind == "file" && !keep.iter().any(|path| path == &node.label) {
-                self.conn
-                    .execute("DELETE FROM graph_nodes WHERE id = ?1", params![node.id])
-                    .map_err(|e| {
-                        AgentError::Database(format!("Stale file node delete failed: {}", e))
-                    })?;
+                delete_node(&self.conn, &node.id)?;
             }
         }
         Ok(())
     }
+
+    /// Drop symbol nodes whose ids are not in the current symbol catalog.
+    /// Only `symbol:{dataset}:…` ids are removed, so synthetic name nodes stay.
+    pub fn delete_symbol_nodes_not_in(
+        &mut self,
+        dataset_id: &str,
+        keep_ids: &[String],
+    ) -> Result<()> {
+        let keep: HashSet<&str> = keep_ids.iter().map(String::as_str).collect();
+        let prefix = format!("symbol:{dataset_id}:");
+        let nodes = self.list_nodes(dataset_id)?;
+        for node in nodes {
+            if node.id.starts_with(&prefix) && !keep.contains(node.id.as_str()) {
+                delete_node(&self.conn, &node.id)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Drop file and chunk datapoints, and their nodes, whose paths are not in the catalog.
+    pub fn delete_catalog_absent_points(
+        &mut self,
+        dataset_id: &str,
+        keep_paths: &[String],
+    ) -> Result<()> {
+        let keep: HashSet<&str> = keep_paths.iter().map(String::as_str).collect();
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+                SELECT id, kind, path FROM datapoints
+                WHERE dataset_id = ?1 AND kind IN ('file', 'chunk')
+                "#,
+            )
+            .map_err(|e| AgentError::Database(format!("Prepare absent points failed: {}", e)))?;
+        let rows = stmt
+            .query_map(params![dataset_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| AgentError::Database(format!("Query absent points failed: {}", e)))?;
+        let mut drop_ids = Vec::new();
+        for row in rows {
+            let (id, kind, path) =
+                row.map_err(|e| AgentError::Database(format!("Absent point row failed: {}", e)))?;
+            let owner = datapoint_file_path(&kind, &path);
+            if !keep.contains(owner) {
+                drop_ids.push(id);
+            }
+        }
+        drop(stmt);
+        for id in &drop_ids {
+            delete_node(&self.conn, id)?;
+            let mut linked_stmt = self
+                .conn
+                .prepare("SELECT id FROM graph_nodes WHERE datapoint_id = ?1")
+                .map_err(|e| {
+                    AgentError::Database(format!("Datapoint node lookup failed: {}", e))
+                })?;
+            let linked = linked_stmt
+                .query_map(params![id], |row| row.get::<_, String>(0))
+                .map_err(|e| {
+                    AgentError::Database(format!("Datapoint node lookup failed: {}", e))
+                })?;
+            let mut node_ids = Vec::new();
+            for node_id in linked {
+                node_ids.push(node_id.map_err(|e| {
+                    AgentError::Database(format!("Datapoint node row failed: {}", e))
+                })?);
+            }
+            drop(linked_stmt);
+            for node_id in node_ids {
+                delete_node(&self.conn, &node_id)?;
+            }
+            self.conn
+                .execute("DELETE FROM datapoints WHERE id = ?1", params![id])
+                .map_err(|e| AgentError::Database(format!("Datapoint delete failed: {}", e)))?;
+        }
+        let nodes = self.list_nodes(dataset_id)?;
+        for node in nodes {
+            if node.kind != "chunk" {
+                continue;
+            }
+            let owner = datapoint_file_path("chunk", &node.label);
+            if !keep.contains(owner) {
+                delete_node(&self.conn, &node.id)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn delete_node(conn: &rusqlite::Connection, id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM graph_edges WHERE src_id = ?1 OR dst_id = ?1",
+        params![id],
+    )
+    .map_err(|e| AgentError::Database(format!("Node edge delete failed: {}", e)))?;
+    conn.execute(
+        "DELETE FROM node_set_members WHERE node_id = ?1",
+        params![id],
+    )
+    .map_err(|e| AgentError::Database(format!("Node membership delete failed: {}", e)))?;
+    conn.execute("DELETE FROM graph_nodes WHERE id = ?1", params![id])
+        .map_err(|e| AgentError::Database(format!("Node delete failed: {}", e)))?;
+    Ok(())
 }
 
 fn render_dot(nodes: &[GraphNode], edges: &[GraphEdge]) -> String {

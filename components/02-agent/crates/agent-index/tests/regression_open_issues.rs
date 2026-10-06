@@ -1,6 +1,6 @@
 use agent_core::{
     types::{FileKind, IndexedFile, Language},
-    Provenance, RepoId, RepoInfo, SourceKind,
+    EdgeKind, Provenance, RepoId, RepoInfo, SourceKind,
 };
 use agent_index::{
     chunk_owner_path, IndexDatabase, NewDataPoint, PutPoint, RepoScanner, ScannedFile,
@@ -293,4 +293,115 @@ fn hash_in_filename_is_not_a_chunk_separator() {
     assert!(surviving
         .iter()
         .all(|point| point.provenance.path != "foo.rs#1-2"));
+}
+
+#[test]
+fn root_test_directories_follow_index_tests() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    for directory in ["src", "tests", "test", "spec", "specs", "docs", "src/tests"] {
+        fs::create_dir_all(root.join(directory)).unwrap();
+    }
+    fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(root.join("src/contest.rs"), "fn contest() {}\n").unwrap();
+    fs::write(root.join("tests/common.rs"), "fn helper() {}\n").unwrap();
+    fs::write(root.join("test/common.rs"), "fn helper() {}\n").unwrap();
+    fs::write(root.join("spec/common.rs"), "fn helper() {}\n").unwrap();
+    fs::write(root.join("specs/common.rs"), "fn helper() {}\n").unwrap();
+    fs::write(root.join("src/tests/common.rs"), "fn helper() {}\n").unwrap();
+    fs::write(root.join("docs/guide.md"), "# Guide\n").unwrap();
+
+    let enabled = RepoScanner::new(root, agent_core::RepoConfig::default()).scan();
+    let kind_of = |scanned: &[ScannedFile], path: &str| {
+        scanned
+            .iter()
+            .find(|item| item.file.relative_path == path)
+            .map(|item| item.file.kind)
+    };
+    assert_eq!(kind_of(&enabled, "tests/common.rs"), Some(FileKind::Test));
+    assert_eq!(kind_of(&enabled, "test/common.rs"), Some(FileKind::Test));
+    assert_eq!(kind_of(&enabled, "spec/common.rs"), Some(FileKind::Test));
+    assert_eq!(kind_of(&enabled, "specs/common.rs"), Some(FileKind::Test));
+    assert_eq!(
+        kind_of(&enabled, "src/tests/common.rs"),
+        Some(FileKind::Test)
+    );
+    assert_eq!(kind_of(&enabled, "src/main.rs"), Some(FileKind::Source));
+    assert_eq!(kind_of(&enabled, "src/contest.rs"), Some(FileKind::Source));
+    assert_eq!(
+        kind_of(&enabled, "docs/guide.md"),
+        Some(FileKind::Documentation)
+    );
+
+    let tests_off = agent_core::RepoConfig {
+        index_tests: false,
+        ..agent_core::RepoConfig::default()
+    };
+    let hidden = RepoScanner::new(root, tests_off).scan();
+    let hidden_paths: Vec<_> = hidden
+        .iter()
+        .map(|item| item.file.relative_path.as_str())
+        .collect();
+    assert!(!hidden_paths.contains(&"tests/common.rs"));
+    assert!(!hidden_paths.iter().any(|path| path.ends_with("common.rs")));
+    assert!(hidden_paths.contains(&"src/main.rs"));
+    assert!(hidden_paths.contains(&"src/contest.rs"));
+    assert!(hidden_paths.contains(&"docs/guide.md"));
+
+    let docs_off = agent_core::RepoConfig {
+        index_tests: false,
+        index_docs: false,
+        ..agent_core::RepoConfig::default()
+    };
+    let neither = RepoScanner::new(root, docs_off).scan();
+    let neither_paths: Vec<_> = neither
+        .iter()
+        .map(|item| item.file.relative_path.as_str())
+        .collect();
+    assert!(!neither_paths.contains(&"docs/guide.md"));
+    assert!(!neither_paths.contains(&"tests/common.rs"));
+    assert!(neither_paths.contains(&"src/main.rs"));
+}
+
+#[test]
+fn cyclic_traversal_returns_each_node_once_quickly() {
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    let repo_id = RepoId::new("cycle");
+    db.update_repo_info(&repo_info(
+        std::path::Path::new("/tmp/cycle"),
+        repo_id.clone(),
+    ))
+    .unwrap();
+    let dataset = db.ensure_dataset(&repo_id, "default").unwrap();
+    for index in 0..8 {
+        let id = format!("n{index}");
+        db.upsert_node(repo_id.as_str(), &dataset.id, &id, "symbol", &id, None)
+            .unwrap();
+    }
+    for src in 0..8 {
+        for dst in 0..8 {
+            if src == dst {
+                continue;
+            }
+            db.upsert_edge(
+                repo_id.as_str(),
+                &dataset.id,
+                &format!("n{src}"),
+                &format!("n{dst}"),
+                EdgeKind::Calls,
+            )
+            .unwrap();
+        }
+    }
+
+    let started = std::time::Instant::now();
+    let found = db.traverse(&dataset.id, "n0", 7).unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "traversal took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(found.len(), 8);
+    assert_eq!(found.iter().find(|(id, _)| id == "n0").unwrap().1, 0);
+    assert!(found.iter().all(|(id, depth)| id == "n0" || *depth == 1));
 }

@@ -374,3 +374,187 @@ fn pasted_text_respects_size_limit_and_redacts_tokens() {
     assert!(note.content.contains("[REDACTED]"));
     assert!(!note.content.contains(&token));
 }
+
+fn head_commit(root: &std::path::Path) -> String {
+    Repository::open(root)
+        .unwrap()
+        .head()
+        .unwrap()
+        .target()
+        .unwrap()
+        .to_string()
+}
+
+fn commit_message(root: &std::path::Path, message: &str, paths: &[&str], remove: &[&str]) {
+    let repo = Repository::open(root).unwrap();
+    let mut index = repo.index().unwrap();
+    for path in remove {
+        index.remove_path(std::path::Path::new(path)).unwrap();
+    }
+    for path in paths {
+        index.add_path(std::path::Path::new(path)).unwrap();
+    }
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let sig = git2::Signature::now("Tester", "test@02os.org").unwrap();
+    let parent = repo.head().unwrap().peel_to_commit().unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
+        .unwrap();
+}
+
+#[test]
+fn cognify_drops_deleted_and_moved_symbol_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git_repo(root);
+    commit_file(
+        root,
+        "retained.rs",
+        "fn obsolete_definition() {}\nfn retained_definition() {}\n",
+    );
+    commit_file(root, "deleted_file.rs", "fn deleted_file_symbol() {}\n");
+
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    let added = index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+    cognify_pipeline(&mut handle, true, None, &TaskRegistry::new()).unwrap();
+    let before = handle.db.list_nodes(&added.dataset_id).unwrap();
+    assert!(before
+        .iter()
+        .any(|node| node.kind == "symbol" && node.label == "obsolete_definition"));
+    assert!(before
+        .iter()
+        .any(|node| node.kind == "symbol" && node.label == "deleted_file_symbol"));
+    assert_eq!(
+        before
+            .iter()
+            .filter(|node| node.kind == "symbol" && node.label == "retained_definition")
+            .count(),
+        1
+    );
+
+    fs::remove_file(root.join("deleted_file.rs")).unwrap();
+    fs::write(root.join("retained.rs"), "fn retained_definition() {}\n").unwrap();
+    commit_message(
+        root,
+        "move retained and drop deleted",
+        &["retained.rs"],
+        &["deleted_file.rs"],
+    );
+    index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+    cognify_pipeline(&mut handle, true, None, &TaskRegistry::new()).unwrap();
+
+    let symbols = handle.db.list_symbols(handle.info.id.as_str()).unwrap();
+    assert!(
+        symbols
+            .iter()
+            .all(|symbol| symbol.name != "obsolete_definition"
+                && symbol.name != "deleted_file_symbol")
+    );
+    assert_eq!(
+        symbols
+            .iter()
+            .filter(|symbol| symbol.name == "retained_definition")
+            .count(),
+        1
+    );
+    let nodes = handle.db.list_nodes(&added.dataset_id).unwrap();
+    assert!(!nodes
+        .iter()
+        .any(|node| node.kind == "symbol" && node.label == "obsolete_definition"));
+    assert!(!nodes
+        .iter()
+        .any(|node| node.kind == "symbol" && node.label == "deleted_file_symbol"));
+    assert_eq!(
+        nodes
+            .iter()
+            .filter(|node| node.kind == "symbol" && node.label == "retained_definition")
+            .count(),
+        1
+    );
+    let points = handle.db.list_datapoints(&added.dataset_id).unwrap();
+    assert!(points
+        .iter()
+        .all(|point| !point.provenance.path.contains("deleted_file.rs")));
+    let exported = export_graph(&handle, None, GraphExportFormat::Json).unwrap();
+    assert!(!exported.contains("obsolete_definition"));
+    assert!(!exported.contains("deleted_file_symbol"));
+    assert!(exported.contains("retained_definition"));
+}
+
+#[test]
+fn read_only_open_does_not_advance_index_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git_repo(root);
+    let first = head_commit(root);
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+    let indexed = handle.db.get_stats(&handle.info.id).unwrap();
+    assert_eq!(indexed.last_indexed_commit.as_deref(), Some(first.as_str()));
+    let indexed_at = indexed.last_indexed_at.expect("indexed_at");
+
+    commit_file(root, "src/next.rs", "pub fn next_definition() {}\n");
+    let second = head_commit(root);
+    assert_ne!(second, first);
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let handle = RepoHandle::open_with_db(root, db).unwrap();
+    let exported = export_graph(&handle, None, GraphExportFormat::Json).unwrap();
+    assert!(exported.contains("target") || exported.contains("caller") || !exported.is_empty());
+    let after_open = handle.db.get_stats(&handle.info.id).unwrap();
+    assert_eq!(
+        after_open.last_indexed_commit.as_deref(),
+        Some(first.as_str())
+    );
+    assert_eq!(after_open.last_indexed_at, Some(indexed_at));
+
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+    let after_index = handle.db.get_stats(&handle.info.id).unwrap();
+    assert_eq!(
+        after_index.last_indexed_commit.as_deref(),
+        Some(second.as_str())
+    );
+    assert_ne!(after_index.last_indexed_at, Some(indexed_at));
+}
+
+#[test]
+fn git_history_redacts_synthetic_tokens() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git_repo(root);
+    let token = format!("ghp_{}", "x".repeat(36));
+    commit_message(root, &format!("rotate {token} now"), &["src/lib.rs"], &[]);
+
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    let added = add_pipeline(
+        &mut handle,
+        &AddRequest {
+            sources: vec![SourceKind::GitHistory],
+            dataset_name: None,
+            text: None,
+            full: false,
+        },
+        &TaskRegistry::new(),
+    )
+    .unwrap();
+    cognify_pipeline(&mut handle, true, None, &TaskRegistry::new()).unwrap();
+
+    let points = handle.db.list_datapoints(&added.dataset_id).unwrap();
+    let commits: Vec<_> = points
+        .iter()
+        .filter(|point| point.kind == "commit")
+        .collect();
+    assert!(!commits.is_empty());
+    assert!(commits.iter().all(|point| !point.content.contains(&token)));
+    assert!(commits
+        .iter()
+        .any(|point| point.content.contains("[REDACTED]")));
+    let exported = export_graph(&handle, None, GraphExportFormat::Json).unwrap();
+    assert!(!exported.contains(&token));
+    assert!(exported.contains("[REDACTED]"));
+}

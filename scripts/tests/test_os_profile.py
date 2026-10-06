@@ -238,7 +238,12 @@ class OSProfileTests(unittest.TestCase):
         text = unit.read_text()
         self.assertIn("ProtectHome=no", text)
         self.assertNotIn("ProtectHome=read-write", text)
-        self.assertIn("ReadWritePaths=-%h/.local/share/02-agent -%h/.cache/02-agent -%t", text)
+        self.assertIn("ExecStartPre=+/usr/lib/02-agent/prepare-storage.sh", text)
+        self.assertIn(
+            "ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %h/.config/02-agent %t %h",
+            text,
+        )
+        self.assertNotIn("ReadWritePaths=-", text)
         binary = "/usr/bin/systemd-analyze"
         self.assertTrue(Path(binary).is_file(), binary)
         result = subprocess.run([binary, "--user", "verify", str(unit)], capture_output=True, text=True, timeout=30)

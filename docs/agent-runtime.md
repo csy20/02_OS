@@ -112,7 +112,7 @@ Generate or automatically install MCP configurations for supported coding agents
 02 connect zed --write
 ```
 
-Codex, Claude, OpenCode, Cursor, and Gemini CLI use this configuration shape. Default paths are `~/.config/codex/mcp.json`, `~/.config/Claude/claude_desktop_config.json`, `~/.config/opencode/mcp.json`, `~/.cursor/mcp.json`, and `~/.gemini/antigravity-cli/mcp_config.json`.
+Codex writes `~/.codex/config.toml` under `[mcp_servers.02]` (`command` and `args`). Claude Code writes user scope `~/.claude.json`, or a project `.mcp.json`, under `mcpServers` — not Claude Desktop's `~/.config/Claude/claude_desktop_config.json`. OpenCode writes `~/.config/opencode/opencode.json` with an `mcp` object (`type` `local`, `command` as an array). Cursor writes `~/.cursor/mcp.json`. Gemini CLI writes `~/.gemini/settings.json` under `mcpServers`, not `~/.gemini/antigravity-cli/mcp_config.json`. Claude Code, Cursor, and Gemini CLI use this shape:
 
 ```json
 {

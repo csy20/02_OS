@@ -4,7 +4,7 @@ use agent_core::{
     config::RepoConfig,
     contain::validate_evidence_file,
     paths::StoragePaths,
-    types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus},
+    types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus, SecretPattern},
 };
 use agent_git::GitRepo;
 use agent_index::IndexDatabase;
@@ -311,7 +311,14 @@ pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallRes
         "git_history" => {
             let limit = arguments["limit"].as_u64().unwrap_or(10) as usize;
             match git_repo.get_recent_commits(limit) {
-                Ok(commits) => ToolCallResult::text(json!(commits).to_string()),
+                Ok(mut commits) => {
+                    for commit in &mut commits {
+                        commit.summary = SecretPattern::redact(&commit.summary);
+                        commit.author = SecretPattern::redact(&commit.author);
+                    }
+                    let text = SecretPattern::redact(&json!(commits).to_string());
+                    ToolCallResult::text(text)
+                }
                 Err(e) => ToolCallResult::error(format!("Git history error: {}", e)),
             }
         }
@@ -339,14 +346,7 @@ pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallRes
             let budget = arguments["token_budget"].as_u64().unwrap_or(8000) as usize;
 
             match ContextCompiler::compile(repo_root, task, budget) {
-                Ok(package) => {
-                    let markdown = package.to_markdown();
-                    let res = json!({
-                        "package": package,
-                        "markdown": markdown,
-                    });
-                    ToolCallResult::text(res.to_string())
-                }
+                Ok(package) => ToolCallResult::text(package.serialized_payload()),
                 Err(e) => ToolCallResult::error(format!("Context compiler error: {}", e)),
             }
         }
