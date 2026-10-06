@@ -1,6 +1,7 @@
 """Validate the ISO overlay without running root customization or installing an OS."""
 import ast
 import configparser
+import fnmatch
 import json
 import os
 from pathlib import Path
@@ -140,6 +141,44 @@ class OSProfileTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual((pam / "greetd").read_text(), "session required pam_unix.so\n")
             self.assertEqual((pam / "02os-graphical-login").read_text(), graphical)
+
+    def test_live_optical_media_skips_gpt_root_loop_discovery(self):
+        rule_path = OVERLAY / "etc/udev/rules.d/98-02os-live-media.rules"
+        self.assertTrue(rule_path.is_file())
+        self.assertLess(rule_path.name, "99-systemd.rules")
+        self.checked("udevadm", "verify", str(rule_path))
+        lines = [line for line in rule_path.read_text().splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        self.assertEqual(len(lines), 1)
+        fields = []
+        for field in lines[0].split(","):
+            match = re.fullmatch(r'\s*(SUBSYSTEM|ENV\{[^}]+\})(==|=)"([^"]*)"\s*', field)
+            self.assertIsNotNone(match, field)
+            fields.append(match.groups())
+        predicates = [(key, value) for key, operator, value in fields if operator == "=="]
+        assignments = [(key, value) for key, operator, value in fields if operator == "="]
+        self.assertEqual(assignments, [("ENV{ID_PART_GPT_AUTO_ROOT_DISK_NEEDS_LOOP}", "0")])
+        # Evaluate the real profile label rather than assuming its case or prefix.
+        profile = subprocess.run(
+            ["bash", "-c", 'declare -A file_permissions; source profile/profiledef.sh; printf "%s" "$iso_label"'],
+            cwd=ROOT, env=dict(os.environ, TZ="UTC", SOURCE_DATE_EPOCH="1791282600"),
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(profile.returncode, 0, profile.stderr)
+        self.assertEqual(profile.stdout, "02_OS_202610")
+        optical = {"SUBSYSTEM": "block", "ENV{ID_CDROM}": "1",
+                   "ENV{ID_FS_TYPE}": "iso9660", "ENV{ID_FS_LABEL}": profile.stdout}
+        cases = [({}, True), ({"SUBSYSTEM": "net"}, False),
+                 ({"ENV{ID_CDROM}": "0"}, False), ({"ENV{ID_CDROM}": ""}, False),
+                 ({"ENV{ID_FS_TYPE}": "ext4"}, False),
+                 ({"ENV{ID_FS_LABEL}": "ARCH_202610"}, False),
+                 ({"ENV{ID_FS_LABEL}": "02_os_202610"}, False)]
+        for changed, expected in cases:
+            with self.subTest(properties=changed):
+                properties = dict(optical, **changed)
+                matches = all(fnmatch.fnmatchcase(properties.get(key, ""), value)
+                              for key, value in predicates)
+                self.assertEqual(matches, expected)
 
     def test_profile_permissions_and_runtime_alias(self):
         text = (ROOT / "profile/profiledef.sh").read_text()
@@ -470,6 +509,7 @@ class OSProfileTests(unittest.TestCase):
             "etc/systemd/system/display-manager.service",
             "etc/systemd/system/graphical.target.wants/gdm.service",
             "etc/systemd/system/systemd-time-wait-sync.service.d/live-offline.conf",
+            "etc/udev/rules.d/98-02os-live-media.rules",
             "etc/ssh/sshd_config.d/10-archiso.conf",
             "etc/polkit-1/rules.d/10-live-power.rules",
             "usr/local/bin/02os-ensure-live-user",

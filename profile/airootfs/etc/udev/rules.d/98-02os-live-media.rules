@@ -1,0 +1,4 @@
+# The live root is a squashfs within ISO9660, not a discoverable GPT root.
+# Avoid systemd 262's optical-media loop-attach failure (systemd#43605).
+# Run before 99-systemd.rules; installed systems do not receive this rule.
+SUBSYSTEM=="block", ENV{ID_CDROM}=="1", ENV{ID_FS_TYPE}=="iso9660", ENV{ID_FS_LABEL}=="02_OS_*", ENV{ID_PART_GPT_AUTO_ROOT_DISK_NEEDS_LOOP}="0"
