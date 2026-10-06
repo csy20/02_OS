@@ -2,6 +2,9 @@
 Description=02 Agent Runtime Daemon (Repository Intelligence & MCP Service)
 Documentation=https://github.com/csy20/02_OS
 After=default.target
+# GDM 50 creates a transient greeter account with no writable user home.
+# The repository daemon belongs to signed-in users, not the login screen.
+ConditionUser=!gdm-greeter
 
 [Service]
 Type=simple
