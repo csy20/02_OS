@@ -44,7 +44,7 @@ toggle-tiled-right=@as []
 [org/gnome/shell]
 disable-user-extensions=false
 favorite-apps=['02os-install.desktop','org.gnome.Nautilus.desktop','firefox.desktop','org.gnome.Console.desktop','org.gnome.Settings.desktop']
-enabled-extensions=['dash-to-dock@micxgx.gmail.com','pop-shell@system76.com']
+enabled-extensions=['dash-to-dock@micxgx.gmail.com','pop-shell@system76.com','flourish@orsso.github.io','compiz-windows-effect@hermes83.github.com']
 
 [org/gnome/shell/keybindings]
 toggle-message-tray=['<Super>v']
@@ -80,11 +80,50 @@ hot-keys=false
 isolate-workspaces=false
 multi-monitor=false
 
+[org/gnome/shell/extensions/flourish]
+motion-profile='custom'
+custom-hover-enabled=true
+custom-hover-scale=1.2
+custom-hover-dynamic-spacing=true
+custom-hover-lift=3
+custom-hover-duration=160
+custom-hover-easing='ease-out-cubic'
+custom-neighbor-radius=2
+custom-press-enabled=false
+custom-launch-enabled=true
+custom-launch-effect='bounce'
+custom-launch-intensity=0.25
+custom-launch-speed=0.8
+custom-launch-repeat=false
+custom-bounce-decay=0.0
+custom-attention-enabled=true
+custom-attention-effect='wiggle'
+custom-attention-intensity=0.5
+custom-attention-speed=1.0
+custom-attention-cycles=1
+custom-attention-interval=10
+custom-attention-reminders=3
+show-hover-background=true
+show-focused-app-background=false
+dock-outline='none'
+
+[org/gnome/shell/extensions/com/github/hermes83/compiz-windows-effect]
+preset='R'
+friction=3.5
+spring-k=3.8
+speedup-factor-divider=12.0
+mass=70.0
+x-tiles=6.0
+y-tiles=6.0
+maximize-effect=false
+resize-effect=false
+
 [org/gnome/shell/extensions/pop-shell]
 tile-by-default=false
 gap-inner=4
 gap-outer=4
-active-hint=true
+active-hint=false
+hint-color-rgba='rgba(0,0,0,0)'
 show-title=true
 toggle-tiling=['<Super>y']
 
@@ -100,4 +139,3 @@ binding='<Super>t'
 name='Files'
 command='nautilus'
 binding='<Super>f'
-

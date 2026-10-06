@@ -332,7 +332,8 @@ export class ShellWindow {
         if (this.ext.settings.active_hint()) {
             let border = this.border;
             const permitted = () => {
-                return (this.actor_exists() &&
+                return (this.ext.settings.active_hint() &&
+                    this.actor_exists() &&
                     this.ext.focus_window() == this &&
                     !this.meta.is_fullscreen() &&
                     (!this.is_single_max_screen() || this.is_snap_edge()) &&

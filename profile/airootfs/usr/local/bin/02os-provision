@@ -104,10 +104,14 @@ required=(
   usr/local/bin/pop-launcher
   usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com
   usr/share/gnome-shell/extensions/pop-shell@system76.com
+  usr/share/gnome-shell/extensions/flourish@orsso.github.io
+  usr/share/gnome-shell/extensions/compiz-windows-effect@hermes83.github.com
   usr/share/icons/02-OS
   usr/share/backgrounds/02os
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.pop-shell.gschema.xml
+  usr/share/glib-2.0/schemas/org.gnome.shell.extensions.flourish.gschema.xml
+  usr/share/glib-2.0/schemas/org.gnome.shell.extensions.com.github.hermes83.compiz-windows-effect.gschema.xml
   etc/dconf/db/local.d/00-02os
   etc/dconf/profile/user
   etc/dconf/db/local
@@ -173,7 +177,10 @@ if ! command -v glib-compile-schemas >/dev/null 2>&1; then
   echo "ERROR: glib-compile-schemas is required to install the 02 desktop profile." >&2
   exit 1
 fi
-glib-compile-schemas "${schema_dir}"
+glib-compile-schemas --strict "${schema_dir}"
+while IFS= read -r -d '' extension_schemas; do
+  glib-compile-schemas --strict "${extension_schemas}"
+done < <(find "${target_canon}/usr/share/gnome-shell/extensions" -type d -name schemas -print0)
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   icon_theme="${target_canon}/usr/share/icons/02-OS"

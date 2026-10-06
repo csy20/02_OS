@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 # Build-time customization for 02_OS ISO.
 # A manual mkarchiso stops here unless ./build.sh staged a matching runtime.
 /usr/local/bin/02os-check-runtime
 
+echo "==> Configuring greetd to register a Wayland login session..."
+/usr/local/bin/02os-configure-greetd
+
 echo "==> Compiling GLib schemas in /usr/share/glib-2.0/schemas..."
-glib-compile-schemas /usr/share/glib-2.0/schemas
+glib-compile-schemas --strict /usr/share/glib-2.0/schemas
+while IFS= read -r -d '' schema_dir; do
+  glib-compile-schemas --strict "${schema_dir}"
+done < <(find /usr/share/gnome-shell/extensions -type d -name schemas -print0)
 
 echo "==> Updating dconf system database..."
 dconf update
@@ -32,4 +38,3 @@ if [[ -f /etc/pacman.d/mirrorlist ]]; then
     sed -i -E 's/^#(Server =)/\1/' /etc/pacman.d/mirrorlist 2>/dev/null || true
   fi
 fi
-

@@ -23,6 +23,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y desktop-file-utils libglib2.0-bin
       - name: Validate scripts, packages, permissions, desktop entries, and assets
         run: python3 -m unittest discover -s scripts/tests -p test_os_profile.py -v
+      - name: Validate bundled desktop extension imports
+        run: python3 -m unittest discover -s scripts/tests -p test_dash_to_dock_imports.py -v
 
   runtime-smoke:
     runs-on: ubuntu-latest

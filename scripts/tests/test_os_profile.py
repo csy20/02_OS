@@ -1,5 +1,6 @@
 """Validate the ISO overlay without running root customization or installing an OS."""
 import ast
+import configparser
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,12 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERLAY = ROOT / "profile/airootfs"
+EXTENSIONS = {
+    "dash-to-dock@micxgx.gmail.com": "org.gnome.shell.extensions.dash-to-dock",
+    "pop-shell@system76.com": "org.gnome.shell.extensions.pop-shell",
+    "flourish@orsso.github.io": "org.gnome.shell.extensions.flourish",
+    "compiz-windows-effect@hermes83.github.com": "org.gnome.shell.extensions.com.github.hermes83.compiz-windows-effect",
+}
 
 
 class OSProfileTests(unittest.TestCase):
@@ -66,6 +73,73 @@ class OSProfileTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 self.checked("desktop-file-validate", str(path))
         self.checked("glib-compile-schemas", "--strict", "--dry-run", str(OVERLAY / "usr/share/glib-2.0/schemas"))
+        for path in sorted((OVERLAY / "usr/share/gnome-shell/extensions").glob("*/schemas")):
+            with self.subTest(schemas=path.parent.name):
+                self.checked("glib-compile-schemas", "--strict", "--dry-run", str(path))
+
+    def test_motion_packages_and_defaults(self):
+        manifest = json.loads((ROOT / "docs/desktop-motion-vendor.json").read_text())
+        for package in manifest["packages"]:
+            ext = OVERLAY / "usr/share/gnome-shell/extensions" / package["uuid"]
+            metadata = json.loads((ext / "metadata.json").read_text())
+            with self.subTest(extension=package["uuid"]):
+                self.assertEqual(metadata["uuid"], package["uuid"])
+                self.assertEqual(metadata.get("version-name", metadata.get("version")), package["version"])
+                self.assertIn("50", metadata["shell-version"])
+                self.assertTrue((ext / package["license_file"]).is_file())
+                self.assertRegex(package["sha256"], r"^[0-9a-f]{64}$")
+                for schema in (ext / "schemas").glob("*.gschema.xml"):
+                    self.assertEqual(schema.read_bytes(), (OVERLAY / "usr/share/glib-2.0/schemas" / schema.name).read_bytes())
+
+        defaults = configparser.ConfigParser(interpolation=None)
+        defaults.read(OVERLAY / "etc/dconf/db/local.d/00-02os")
+        for uuid in EXTENSIONS:
+            self.assertIn(uuid, defaults["org/gnome/shell"]["enabled-extensions"])
+        self.assertEqual(defaults["org/gnome/shell/extensions/flourish"]["motion-profile"], "'custom'")
+        self.assertEqual(defaults["org/gnome/shell/extensions/com/github/hermes83/compiz-windows-effect"]["maximize-effect"], "false")
+        self.assertEqual(defaults["org/gnome/shell/extensions/com/github/hermes83/compiz-windows-effect"]["resize-effect"], "false")
+        # Validate types, ranges and enum values with GLib, using an ephemeral
+        # backend so no desktop settings are changed on the test machine.
+        with tempfile.TemporaryDirectory(prefix="02os-schemas-") as tmp:
+            schemas = Path(tmp)
+            for path in (OVERLAY / "usr/share/glib-2.0/schemas").glob("*.gschema.xml"):
+                shutil.copy(path, schemas)
+            self.checked("glib-compile-schemas", "--strict", str(schemas))
+            env = dict(os.environ, GSETTINGS_BACKEND="memory", GSETTINGS_SCHEMA_DIR=str(schemas))
+            for uuid, schema_id in EXTENSIONS.items():
+                section = schema_id.replace(".", "/")
+                for key, value in defaults[section].items():
+                    with self.subTest(extension=uuid, key=key):
+                        result = subprocess.run(["gsettings", "set", schema_id, key, value],
+                                                env=env, capture_output=True, text=True, timeout=10)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_graphical_pam_configuration_is_idempotent(self):
+        helper = OVERLAY / "usr/local/bin/02os-configure-greetd"
+        with tempfile.TemporaryDirectory(prefix="02os-pam-") as tmp:
+            pam = Path(tmp)
+            login = "auth required pam_unix.so\nsession required pam_limits.so\n-session optional pam_systemd.so type=tty\n"
+            greetd = "auth include system-local-login\naccount include system-local-login\nsession include system-local-login\n"
+            (pam / "system-login").write_text(login)
+            (pam / "greetd").write_text(greetd)
+            self.checked(str(helper), str(pam))
+            configured = (pam / "greetd").read_text()
+            graphical = (pam / "02os-graphical-login").read_text()
+            self.assertEqual((pam / "system-login").read_text(), login)
+            self.assertIn("session    include      02os-graphical-login", configured)
+            self.assertIn("auth include system-local-login", configured)
+            self.assertIn("account include system-local-login", configured)
+            self.assertIn("pam_systemd.so type=wayland", graphical)
+            self.assertNotIn("type=tty", graphical)
+            self.checked(str(helper), str(pam))
+            self.assertEqual((pam / "greetd").read_text(), configured)
+            self.assertEqual((pam / "02os-graphical-login").read_text(), graphical)
+            # An unfamiliar PAM stack must fail before changing either file.
+            (pam / "greetd").write_text("session required pam_unix.so\n")
+            result = subprocess.run([str(helper), str(pam)], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((pam / "greetd").read_text(), "session required pam_unix.so\n")
+            self.assertEqual((pam / "02os-graphical-login").read_text(), graphical)
 
     def test_profile_permissions_and_runtime_alias(self):
         text = (ROOT / "profile/profiledef.sh").read_text()
@@ -87,7 +161,7 @@ class OSProfileTests(unittest.TestCase):
             self.assertTrue(alias.is_symlink(), "usr/bin/02agent must be a symlink to 02 when it is staged")
             self.assertEqual(alias.readlink(), Path("02"))
         for script in ("02os-gnome-session", "02os-ensure-live-user", "pop-shell-shortcuts",
-                       "02os-install", "02os-provision", "pop-launcher", "02os-check-runtime"):
+                       "02os-install", "02os-provision", "pop-launcher", "02os-check-runtime", "02os-configure-greetd"):
             self.assertEqual(permissions[f"/usr/local/bin/{script}"], "0:0:755")
 
     def test_install_desktop_launches_provisioner_entry(self):
@@ -190,18 +264,18 @@ class OSProfileTests(unittest.TestCase):
             self.assertEqual((target / "usr/lib/systemd/user/02-agentd.service").read_text(), "[Service]\n")
             self.assertTrue((target / "etc/systemd/user/default.target.wants/02-agentd.service").is_symlink())
             self.assertEqual((target / "usr/local/bin/pop-launcher").read_text(), "launcher")
-            self.assertEqual((target / "usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/extension.js").read_text(), "ext")
-            self.assertEqual((target / "usr/share/gnome-shell/extensions/pop-shell@system76.com/extension.js").read_text(), "ext")
+            for uuid in EXTENSIONS:
+                ext = target / "usr/share/gnome-shell/extensions" / uuid
+                self.assertEqual((ext / "extension.js").read_text(), "ext")
+                self.assertTrue((ext / "schemas/gschemas.compiled").is_file())
             self.assertEqual((target / "usr/share/applications/02os-install.desktop").read_text(), "desktop")
             self.assertEqual((target / "usr/lib/02-agent/SOURCE_REVISION").read_text(), "rev\n")
             self.assertEqual((target / "etc/dconf/db/local.d/00-02os").read_text(), "dconf")
             self.assertEqual((target / "etc/dconf/profile/user").read_text(), "user-db:user\nsystem-db:local\n")
             self.assertEqual((target / "usr/share/backgrounds/02os/desktop.jpg").read_text(), "jpg")
             schema_dir = target / "usr/share/glib-2.0/schemas"
-            dock_schema = self._schema("org.gnome.shell.extensions.dash-to-dock")
-            pop_schema = self._schema("org.gnome.shell.extensions.pop-shell")
-            self.assertEqual((schema_dir / "org.gnome.shell.extensions.dash-to-dock.gschema.xml").read_text(), dock_schema)
-            self.assertEqual((schema_dir / "org.gnome.shell.extensions.pop-shell.gschema.xml").read_text(), pop_schema)
+            for schema_id in EXTENSIONS.values():
+                self.assertEqual((schema_dir / f"{schema_id}.gschema.xml").read_text(), self._schema(schema_id))
             self.assertTrue((schema_dir / "gschemas.compiled").is_file())
             self.assertFalse((schema_dir / "org.example.gschema.xml").exists())
             icon = target / "usr/share/icons/02-OS/scalable/apps/a.svg"
@@ -224,6 +298,19 @@ class OSProfileTests(unittest.TestCase):
             self.assertIn("required 02_OS file is missing", result.stderr)
             self.assertFalse((bare_target / "usr/bin/02").exists())
             self.assertFalse((bare_target / "usr/share/applications/02os-install.desktop").exists())
+
+    def test_provisioner_requires_motion_extensions_before_copying(self):
+        provision = OVERLAY / "usr/local/bin/02os-provision"
+        for uuid in ("flourish@orsso.github.io", "compiz-windows-effect@hermes83.github.com"):
+            with self.subTest(extension=uuid), tempfile.TemporaryDirectory(prefix="02os-missing-ext-") as tmp:
+                source, target = Path(tmp) / "source", Path(tmp) / "target"
+                self._write_provision_fixture(source, include_runtime=True)
+                shutil.rmtree(source / "usr/share/gnome-shell/extensions" / uuid)
+                result = subprocess.run([str(provision), "--source", str(source), "--target", str(target)],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(uuid, result.stderr)
+                self.assertFalse((target / "usr/bin/02").exists())
 
     def test_provisioner_refuses_symlink_outside_source(self):
         provision = OVERLAY / "usr/local/bin/02os-provision"
@@ -286,10 +373,11 @@ class OSProfileTests(unittest.TestCase):
         launcher = source / "usr/local/bin/pop-launcher"
         launcher.parent.mkdir(parents=True)
         launcher.write_text("launcher")
-        for ext in ("dash-to-dock@micxgx.gmail.com", "pop-shell@system76.com"):
+        for ext, schema_id in EXTENSIONS.items():
             ext_dir = source / "usr/share/gnome-shell/extensions" / ext
-            ext_dir.mkdir(parents=True)
+            (ext_dir / "schemas").mkdir(parents=True)
             (ext_dir / "extension.js").write_text("ext")
+            (ext_dir / "schemas" / f"{schema_id}.gschema.xml").write_text(self._schema(schema_id))
         apps = source / "usr/share/icons/02-OS/scalable/apps"
         apps.mkdir(parents=True)
         (source / "usr/share/icons/02-OS/index.theme").write_text("[Icon Theme]\nName=02-OS\nDirectories=scalable/apps\n")
@@ -301,12 +389,8 @@ class OSProfileTests(unittest.TestCase):
         schema_dir = source / "usr/share/glib-2.0/schemas"
         schema_dir.mkdir(parents=True)
         (schema_dir / "org.example.gschema.xml").write_text("<schemalist/>")
-        (schema_dir / "org.gnome.shell.extensions.dash-to-dock.gschema.xml").write_text(
-            self._schema("org.gnome.shell.extensions.dash-to-dock")
-        )
-        (schema_dir / "org.gnome.shell.extensions.pop-shell.gschema.xml").write_text(
-            self._schema("org.gnome.shell.extensions.pop-shell")
-        )
+        for schema_id in EXTENSIONS.values():
+            (schema_dir / f"{schema_id}.gschema.xml").write_text(self._schema(schema_id))
         dconf = source / "etc/dconf/db/local.d/00-02os"
         dconf.parent.mkdir(parents=True)
         dconf.write_text("dconf")
@@ -327,6 +411,8 @@ class OSProfileTests(unittest.TestCase):
         forbidden = [
             "etc/sudoers.d/01-live",
             "etc/greetd/config.toml",
+            "etc/pam.d/greetd",
+            "etc/pam.d/02os-graphical-login",
             "etc/sysusers.d/02os.conf",
             "etc/systemd/system/02os-ensure-live-user.service",
             "etc/systemd/system/graphical.target.wants/02os-ensure-live-user.service",
@@ -334,6 +420,7 @@ class OSProfileTests(unittest.TestCase):
             "etc/ssh/sshd_config.d/10-archiso.conf",
             "etc/polkit-1/rules.d/10-live-power.rules",
             "usr/local/bin/02os-ensure-live-user",
+            "usr/local/bin/02os-configure-greetd",
             "etc/hostname",
         ]
         for rel in forbidden:
