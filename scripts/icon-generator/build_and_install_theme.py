@@ -324,10 +324,24 @@ def generate_theme_at(base_dir):
     except Exception as e:
         print(f"Note: gtk-update-icon-cache notice: {e}")
 
-for target in TARGET_PATHS:
-    try:
-        generate_theme_at(target)
-    except Exception as err:
-        print(f"Error generating at {target}: {err}")
+def main():
+    failed = []
+    for target in TARGET_PATHS:
+        try:
+            generate_theme_at(target)
+        except Exception as err:
+            failed.append(target)
+            print(f"Error generating at {target}: {err}", file=sys.stderr)
+            continue
+        print(f"Theme generation complete for {target}")
+    if failed:
+        print(
+            "ERROR: required theme write failed for: " + ", ".join(failed),
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
-print("Theme generation complete for all target paths!")
+
+if __name__ == "__main__":
+    sys.exit(main())

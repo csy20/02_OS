@@ -1,4 +1,5 @@
 use agent_core::types::{EvidenceMemory, Symbol};
+use agent_core::SecretPattern;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +76,11 @@ pub struct EvidencePackage {
 }
 
 impl EvidencePackage {
+    /// Pretty JSON actually delivered by the CLI `--json` path and the MCP context tool.
+    pub fn serialized_payload(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
     /// Render evidence package as a clean, structured Markdown document for LLM consumption.
     pub fn to_markdown(&self) -> String {
         if self.budget.budget_limit == 0 {
@@ -193,26 +199,18 @@ impl EvidencePackage {
         // Recent Commits
         if !self.git_context.recent_commits.is_empty() {
             md.push_str("## Recent Related Commits\n");
-            for c in self.git_context.recent_commits.iter().take(5) {
+            for c in &self.git_context.recent_commits {
                 md.push_str(&format!(
                     "- `{}` {} ({})\n",
                     &c.commit_id[..c.commit_id.len().min(7)],
-                    c.summary,
-                    c.author
+                    SecretPattern::redact(&c.summary),
+                    SecretPattern::redact(&c.author)
                 ));
             }
             md.push('\n');
         }
 
-        let limit_chars = self.budget.budget_limit.saturating_mul(4);
-        if md.len() > limit_chars {
-            let mut end = limit_chars;
-            while end > 0 && !md.is_char_boundary(end) {
-                end -= 1;
-            }
-            md.truncate(end);
-        }
-        md
+        SecretPattern::redact(&md)
     }
 }
 

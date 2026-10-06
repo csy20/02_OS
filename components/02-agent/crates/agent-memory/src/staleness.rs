@@ -1,38 +1,85 @@
 use crate::store::MemoryStore;
 use agent_core::{
     config::RepoConfig,
-    contain::read_regular_text_within,
-    types::{EvidenceMemory, Language, MemoryStatus, RepoId},
+    contain::{contains_symlink, read_regular_text_within},
+    types::{EvidenceMemory, Language, MemoryStatus, RepoId, SecretPattern},
     Result,
 };
 use agent_git::GitRepo;
+use agent_index::scanner::custom_ignored;
 use agent_index::IndexDatabase;
 use agent_parser::CodeExtractor;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 
 fn is_code_evidence(path: &str) -> bool {
-    matches!(
-        Path::new(path).extension().and_then(|ext| ext.to_str()),
-        Some("rs" | "py" | "c" | "sh" | "js" | "ts")
-    )
+    Language::path_extracts_symbols(path)
 }
 
-fn live_symbol_names(root: &Path, relative: &str, max_bytes: u64) -> Option<HashSet<String>> {
+struct LiveSymbols {
+    names: HashSet<String>,
+    fingerprints: HashMap<String, Vec<String>>,
+}
+
+fn live_symbols(root: &Path, relative: &str, max_bytes: u64) -> Option<LiveSymbols> {
     let path = Path::new(relative);
     let content = read_regular_text_within(root, path, max_bytes).ok()?;
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
     let extracted =
         CodeExtractor::extract(relative, &content, Language::from_extension(extension)).ok()?;
     let mut names = HashSet::new();
+    let mut fingerprints: HashMap<String, Vec<String>> = HashMap::new();
     for symbol in extracted.symbols {
-        names.insert(symbol.name);
-        names.insert(symbol.qualified_name);
+        names.insert(symbol.name.clone());
+        names.insert(symbol.qualified_name.clone());
+        fingerprints
+            .entry(symbol.name.clone())
+            .or_default()
+            .push(symbol.fingerprint.clone());
+        fingerprints
+            .entry(symbol.qualified_name)
+            .or_default()
+            .push(symbol.fingerprint);
     }
-    Some(names)
+    Some(LiveSymbols {
+        names,
+        fingerprints,
+    })
+}
+
+fn fingerprint_matches(live: &LiveSymbols, symbol: &str, recorded: &str) -> bool {
+    live.fingerprints
+        .get(symbol)
+        .map(|found| found.iter().any(|fingerprint| fingerprint == recorded))
+        .unwrap_or(false)
+}
+
+struct SymbolChanges {
+    pairs: HashSet<(String, String)>,
+    names: HashSet<String>,
+}
+
+impl SymbolChanges {
+    fn new() -> Self {
+        Self {
+            pairs: HashSet::new(),
+            names: HashSet::new(),
+        }
+    }
+
+    fn insert(&mut self, file: &str, name: &str, qualified: &str) {
+        self.pairs.insert((file.to_string(), name.to_string()));
+        if qualified != name {
+            self.pairs.insert((file.to_string(), qualified.to_string()));
+        }
+        self.names.insert(name.to_string());
+    }
+
+    fn touches(&self, file: &str, symbol: &str) -> bool {
+        self.pairs.contains(&(file.to_string(), symbol.to_string()))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,33 +105,38 @@ impl StalenessEngine {
     ) -> Result<StalenessReport> {
         let root = repo_root.as_ref();
         let diff_hunks = git_repo.get_diff_hunks()?;
+        let config = RepoConfig::load_or_default(root);
+        let max_bytes = config.max_file_size_kb.saturating_mul(1024);
 
         let mut modified_files = Vec::new();
-        let mut changed_symbols: HashSet<String> = HashSet::new();
+        let mut changed_symbols = SymbolChanges::new();
 
         for file_diff in &diff_hunks {
             modified_files.push(file_diff.file_path.clone());
-            let full_file_path = root.join(&file_diff.file_path);
+            let relative = Path::new(&file_diff.file_path);
+            if SecretPattern::is_secret(relative)
+                || custom_ignored(relative, &config.custom_ignores)
+                || contains_symlink(root, relative)
+            {
+                continue;
+            }
 
-            if file_diff.is_deleted || !full_file_path.exists() {
+            if file_diff.is_deleted || !root.join(relative).exists() {
                 let old_syms = db.find_symbols_by_file(repo_id, &file_diff.file_path)?;
                 for s in old_syms {
-                    changed_symbols.insert(s.name);
+                    changed_symbols.insert(&file_diff.file_path, &s.name, &s.qualified_name);
                 }
                 continue;
             }
 
-            // File exists and was modified: compare indexed symbols with a fresh extract.
-            let content = match fs::read_to_string(&full_file_path) {
-                Ok(c) => c,
+            // Bounded, symlink-rejecting read. Oversized and external paths are skipped.
+            let content = match read_regular_text_within(root, relative, max_bytes) {
+                Ok(content) => content,
                 Err(_) => continue,
             };
 
-            let ext = full_file_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-            let lang = agent_core::types::Language::from_extension(ext);
+            let ext = relative.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let lang = Language::from_extension(ext);
             let fresh_extraction =
                 CodeExtractor::extract(&file_diff.file_path, &content, lang).ok();
 
@@ -97,7 +149,11 @@ impl StalenessEngine {
                 if let Ok(old_symbols) = db.find_symbols_by_file(repo_id, &file_diff.file_path) {
                     for old in old_symbols {
                         if !fresh_names.contains(old.name.as_str()) {
-                            changed_symbols.insert(old.name);
+                            changed_symbols.insert(
+                                &file_diff.file_path,
+                                &old.name,
+                                &old.qualified_name,
+                            );
                         }
                     }
                 }
@@ -117,11 +173,19 @@ impl StalenessEngine {
 
                             if let Some(old) = matched {
                                 if old.fingerprint != sym.fingerprint {
-                                    changed_symbols.insert(sym.name.clone());
+                                    changed_symbols.insert(
+                                        &sym.file_path,
+                                        &sym.name,
+                                        &sym.qualified_name,
+                                    );
                                 }
                             } else {
                                 // Brand new or moved symbol
-                                changed_symbols.insert(sym.name.clone());
+                                changed_symbols.insert(
+                                    &sym.file_path,
+                                    &sym.name,
+                                    &sym.qualified_name,
+                                );
                             }
                         }
                     }
@@ -135,8 +199,7 @@ impl StalenessEngine {
         let mut fresh_count = 0;
         let mut degraded_count = 0;
         let mut stale_count = 0;
-        let max_bytes = RepoConfig::load_or_default(root).max_file_size_kb * 1024;
-        let mut live_cache: HashMap<String, Option<HashSet<String>>> = HashMap::new();
+        let mut live_cache: HashMap<String, Option<LiveSymbols>> = HashMap::new();
 
         for mut mem in memories {
             let mut memory_changed = false;
@@ -144,23 +207,35 @@ impl StalenessEngine {
             let mut has_degraded_evidence = false;
 
             for ev in &mem.evidence {
-                let full_path = root.join(&ev.file);
-                if !full_path.is_file() {
+                let relative = Path::new(&ev.file);
+                if contains_symlink(root, relative) || !root.join(relative).is_file() {
                     has_stale_evidence = true;
                     break;
                 }
 
                 if is_code_evidence(&ev.file) {
-                    let names = live_cache
+                    let live = live_cache
                         .entry(ev.file.clone())
-                        .or_insert_with(|| live_symbol_names(root, &ev.file, max_bytes));
-                    match names {
-                        Some(names) => {
+                        .or_insert_with(|| live_symbols(root, &ev.file, max_bytes));
+                    match live {
+                        Some(live) => {
+                            let symbols_supplied = !ev.symbols.is_empty();
                             for sym in &ev.symbols {
-                                if !names.contains(sym) {
+                                if !live.names.contains(sym) {
                                     has_stale_evidence = true;
-                                } else if changed_symbols.contains(sym) {
+                                } else if changed_symbols.touches(&ev.file, sym) {
                                     has_degraded_evidence = true;
+                                }
+                            }
+                            if symbols_supplied {
+                                if let Some(recorded) = &ev.fingerprint {
+                                    let mismatched = ev.symbols.iter().any(|sym| {
+                                        live.names.contains(sym)
+                                            && !fingerprint_matches(live, sym, recorded)
+                                    });
+                                    if mismatched {
+                                        has_degraded_evidence = true;
+                                    }
                                 }
                             }
                         }
@@ -168,7 +243,7 @@ impl StalenessEngine {
                     }
                 } else {
                     for sym in &ev.symbols {
-                        if changed_symbols.contains(sym) {
+                        if changed_symbols.touches(&ev.file, sym) {
                             has_degraded_evidence = true;
                         }
                     }
@@ -210,7 +285,7 @@ impl StalenessEngine {
             }
         }
 
-        let mut sym_vec: Vec<String> = changed_symbols.into_iter().collect();
+        let mut sym_vec: Vec<String> = changed_symbols.names.into_iter().collect();
         sym_vec.sort();
 
         Ok(StalenessReport {

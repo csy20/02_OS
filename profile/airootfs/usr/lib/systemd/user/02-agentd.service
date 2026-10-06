@@ -5,17 +5,19 @@ After=default.target
 
 [Service]
 Type=simple
+# '+' skips ProtectSystem so the directories exist before the sandbox.
+ExecStartPre=+/usr/lib/02-agent/prepare-storage.sh
 ExecStart=/usr/bin/02-agentd
 Restart=on-failure
 RestartSec=3s
 Environment=RUST_LOG=info
 
-# ProtectHome=no leaves home writable so repositories there can be indexed.
-# The data directory is still created mode 0700. A leading '-' keeps the
-# first start from failing when those paths do not exist yet.
+# strict makes the whole tree read-only, including $HOME. ProtectHome=no
+# only keeps home visible. %h is writable so repositories can be indexed.
+# A user generator adds ReadWritePaths for non-default XDG locations.
 ProtectSystem=strict
 ProtectHome=no
-ReadWritePaths=-%h/.local/share/02-agent -%h/.cache/02-agent -%t
+ReadWritePaths=%h/.local/share/02-agent %h/.cache/02-agent %h/.config/02-agent %t %h
 NoNewPrivileges=true
 
 [Install]

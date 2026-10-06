@@ -28,8 +28,9 @@
 
         <key type="d" name="speedup-factor-divider">
             <default>12.0</default>
+            <range min="2.0" max="40.0"/>
             <summary>Speedup Factor</summary>
-            <description/>
+            <description>Positive animation step divisor. The preferences slider accepts 2 through 40.</description>
         </key>
 
         <key type="d" name="mass">

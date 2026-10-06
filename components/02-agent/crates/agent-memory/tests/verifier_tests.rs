@@ -104,3 +104,39 @@ fn verifier_requires_the_symbol_in_the_cited_file() {
     assert_eq!(degraded.status, MemoryStatus::Degraded);
     assert_eq!(degraded.confidence, 0.70);
 }
+
+#[test]
+fn verifier_marks_a_missing_tsx_symbol_stale() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/Widget.tsx"),
+        "export function KeptComponent() {\n  return 1;\n}\n",
+    )
+    .unwrap();
+    let repo_id = RepoId::from_path(root);
+    let db = IndexDatabase::open_in_memory().unwrap();
+
+    let missing = MemoryVerifier::verify(
+        &memory("src/Widget.tsx", "RemovedComponent", None),
+        root,
+        &repo_id,
+        Some("abc"),
+        &db,
+    )
+    .unwrap();
+    assert_eq!(missing.status, MemoryStatus::Stale);
+    assert_eq!(missing.confidence, 0.0);
+
+    let kept = MemoryVerifier::verify(
+        &memory("src/Widget.tsx", "KeptComponent", None),
+        root,
+        &repo_id,
+        Some("abc"),
+        &db,
+    )
+    .unwrap();
+    assert_eq!(kept.status, MemoryStatus::Fresh);
+    assert_eq!(kept.confidence, 1.0);
+}

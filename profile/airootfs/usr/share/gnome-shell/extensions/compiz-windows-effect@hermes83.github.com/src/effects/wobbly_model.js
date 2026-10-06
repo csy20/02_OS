@@ -29,6 +29,18 @@
  */
 'use strict';
 
+// One frame must finish even if a divider of 0 produced an infinite step count.
+export const MAX_FRAME_STEPS = 1024;
+
+export function bounded_frame_steps(steps) {
+    const count = Number(steps);
+    if (!Number.isFinite(count) || count < 0)
+        return 0;
+    if (count > MAX_FRAME_STEPS)
+        return MAX_FRAME_STEPS;
+    return count;
+}
+
 export class WobblyModel {
     constructor(config) {
         this.GRID_WIDTH = 4;
@@ -172,6 +184,7 @@ export class WobblyModel {
 
     step(steps) {
         let i, j, spring, object, springForce, movementStep = false;
+        steps = bounded_frame_steps(steps);
 
         for (j = steps; j >= 0; --j) {
             for (i = this.springs.length - 1; i >= 0, spring = this.springs[i]; --i) {

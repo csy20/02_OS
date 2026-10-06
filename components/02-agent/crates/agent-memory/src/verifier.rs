@@ -10,10 +10,7 @@ use chrono::Utc;
 use std::path::Path;
 
 fn is_code_evidence(path: &str) -> bool {
-    matches!(
-        Path::new(path).extension().and_then(|ext| ext.to_str()),
-        Some("rs" | "py" | "c" | "sh" | "js" | "ts")
-    )
+    Language::path_extracts_symbols(path)
 }
 
 pub struct MemoryVerifier;

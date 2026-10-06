@@ -3,8 +3,9 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 const { byteArray } = imports;
 export class LauncherService {
-    constructor(service, callback) {
+    constructor(service, callback, onClosed = null) {
         this.service = service;
+        this.onClosed = onClosed;
         const generator = (stdout, res) => {
             try {
                 const [bytes] = stdout.read_line_finish(res);
@@ -13,12 +14,17 @@ export class LauncherService {
                     callback(JSON.parse(string));
                     this.service.stdout.read_line_async(0, this.service.cancellable, generator);
                 }
+                else if (this.onClosed) {
+                    this.onClosed();
+                }
             }
             catch (why) {
                 if (why.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
                     return;
                 }
                 log.error(`failed to read response from launcher service: ${why}`);
+                if (this.onClosed)
+                    this.onClosed();
             }
         };
         this.service.stdout.read_line_async(0, this.service.cancellable, generator);
@@ -71,6 +77,8 @@ export class LauncherService {
         }
         catch (why) {
             log.error(`failed to send request to pop-launcher: ${why}`);
+            if (this.onClosed)
+                this.onClosed();
         }
     }
 }

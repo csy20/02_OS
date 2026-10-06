@@ -19,7 +19,32 @@ fail() {
   exit 1
 }
 
-release="${repo_root}/components/02-agent/target/release"
+# Same target directory as build-agent-runtime.sh. Trees without a manifest
+# (unit fixtures) still compare the default target/release path.
+resolve_release_dir() {
+  local manifest="${repo_root}/components/02-agent/Cargo.toml"
+  local meta target_dir
+  if [[ ! -f "${manifest}" ]]; then
+    printf '%s\n' "${repo_root}/components/02-agent/target/release"
+    return 0
+  fi
+  command -v cargo >/dev/null 2>&1 || fail "cargo is required to resolve the target directory"
+  meta="$(cargo metadata --format-version 1 --no-deps --manifest-path "${manifest}")" \
+    || fail "cargo metadata failed for ${manifest}"
+  if command -v python3 >/dev/null 2>&1; then
+    target_dir="$(printf '%s' "${meta}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')" \
+      || fail "could not parse cargo target_directory"
+  else
+    target_dir="$(printf '%s' "${meta}" | sed -n 's/.*"target_directory"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+    target_dir="${target_dir//\\\//\/}"
+  fi
+  [[ -n "${target_dir}" ]] || fail "cargo metadata did not report target_directory"
+  printf '%s\n' "${target_dir%/}/release"
+}
+
+if ! release="$(resolve_release_dir)"; then
+  exit 1
+fi
 staged="${repo_root}/profile/airootfs/usr/bin"
 prov="${repo_root}/profile/airootfs/usr/lib/02-agent/SOURCE_REVISION"
 

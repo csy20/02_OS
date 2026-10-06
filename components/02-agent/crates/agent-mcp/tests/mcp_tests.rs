@@ -178,10 +178,19 @@ fn test_mcp_protocol_and_tools() {
 
     // 9. Test AgentConnector configuration generator
     let codex_conf = AgentConnector::generate_config(&AgentTarget::Codex);
-    assert_eq!(codex_conf["mcpServers"]["02"]["command"], "02");
+    assert_eq!(codex_conf["mcp_servers"]["02"]["command"], "02");
+    assert_eq!(
+        codex_conf["mcp_servers"]["02"]["args"].clone(),
+        json!(["mcp"])
+    );
 
     let connect_out = AgentConnector::connect("claude", false).unwrap();
-    assert!(connect_out.contains("\"02\""));
+    let claude_value: serde_json::Value = serde_json::from_str(&connect_out).unwrap();
+    assert_eq!(claude_value["mcpServers"]["02"]["command"], "02");
+    assert_eq!(
+        claude_value["mcpServers"]["02"]["args"].clone(),
+        json!(["mcp"])
+    );
 }
 
 #[test]
@@ -194,8 +203,22 @@ fn test_connect_targets_and_repo_path_schema() {
         home.join(".cursor/mcp.json")
     );
     assert_eq!(
+        AgentTarget::parse("codex").default_config_path().unwrap(),
+        home.join(".codex/config.toml")
+    );
+    assert_eq!(
+        AgentTarget::parse("claude").default_config_path().unwrap(),
+        home.join(".claude.json")
+    );
+    assert_eq!(
+        AgentTarget::parse("opencode")
+            .default_config_path()
+            .unwrap(),
+        home.join(".config/opencode/opencode.json")
+    );
+    assert_eq!(
         AgentTarget::parse("gemini").default_config_path().unwrap(),
-        home.join(".gemini/antigravity-cli/mcp_config.json")
+        home.join(".gemini/settings.json")
     );
     assert_eq!(
         AgentTarget::parse("zed").default_config_path().unwrap(),
@@ -208,8 +231,20 @@ fn test_connect_targets_and_repo_path_schema() {
 
     let cursor = AgentConnector::connect("cursor", false).unwrap();
     assert!(cursor.contains("mcpServers"));
-    let gemini = AgentConnector::connect("gemini", false).unwrap();
-    assert!(gemini.contains("mcpServers"));
+    let gemini: serde_json::Value =
+        serde_json::from_str(&AgentConnector::connect("gemini", false).unwrap()).unwrap();
+    assert_eq!(gemini["mcpServers"]["02"]["command"], "02");
+    let opencode: serde_json::Value =
+        serde_json::from_str(&AgentConnector::connect("opencode", false).unwrap()).unwrap();
+    assert_eq!(opencode["mcp"]["02"]["type"], "local");
+    assert_eq!(
+        opencode["mcp"]["02"]["command"].clone(),
+        json!(["02", "mcp"])
+    );
+    assert!(opencode.get("mcpServers").is_none());
+    let codex = AgentConnector::connect("codex", false).unwrap();
+    assert!(codex.contains("[mcp_servers.02]"));
+    assert!(!codex.contains("mcpServers"));
 
     let tools = agent_mcp::list_tools();
     assert!(tools
@@ -219,21 +254,25 @@ fn test_connect_targets_and_repo_path_schema() {
 
 #[test]
 fn test_merge_config_text_rejects_non_objects() {
-    let array = AgentConnector::merge_config_text(&AgentTarget::Codex, "[]");
+    let array = AgentConnector::merge_config_text(&AgentTarget::Cursor, "[]");
     assert!(array.is_err());
-    let list = AgentConnector::merge_config_text(&AgentTarget::Codex, r#"{"mcpServers":[]}"#);
+    let list = AgentConnector::merge_config_text(&AgentTarget::Cursor, r#"{"mcpServers":[]}"#);
     assert!(list.is_err());
-    let invalid = AgentConnector::merge_config_text(&AgentTarget::Codex, "{");
+    let invalid = AgentConnector::merge_config_text(&AgentTarget::Cursor, "{");
     assert!(invalid.is_err());
+    let bad_toml = AgentConnector::merge_config_text(&AgentTarget::Codex, "[[[not toml");
+    assert!(bad_toml.is_err());
 
     let merged = AgentConnector::merge_config_text(
-        &AgentTarget::Codex,
-        r#"{"mcpServers":{"other":{"command":"keep"}}}"#,
+        &AgentTarget::Cursor,
+        r#"{"theme":"dark","mcpServers":{"other":{"command":"keep"}}}"#,
     )
     .unwrap();
     let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
     assert_eq!(value["mcpServers"]["02"]["command"], "02");
+    assert_eq!(value["mcpServers"]["02"]["args"].clone(), json!(["mcp"]));
     assert_eq!(value["mcpServers"]["other"]["command"], "keep");
+    assert_eq!(value["theme"], "dark");
 
     let zed =
         AgentConnector::merge_config_text(&AgentTarget::Zed, r#"{"context_servers":{}}"#).unwrap();
@@ -285,4 +324,180 @@ fn memory_write_rejects_paths_outside_the_repository() {
         }),
     );
     assert!(!ok.is_error, "{ok:?}");
+}
+
+#[test]
+fn jsonrpc_notifications_are_silent_and_bad_version_is_invalid_request() {
+    use std::io::Cursor;
+    use std::path::PathBuf;
+
+    let server = McpServer::new(PathBuf::from("."));
+    let input = concat!(
+        "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+        "{\"jsonrpc\":\"2.0\",\"method\":\"no/such-method\"}\n",
+        "{\"jsonrpc\":\"1.0\",\"method\":\"ping\"}\n",
+    );
+    let mut output = Vec::new();
+    server.run_stdio(Cursor::new(input), &mut output).unwrap();
+    assert!(output.is_empty(), "{}", String::from_utf8_lossy(&output));
+
+    let mut output = Vec::new();
+    server
+        .run_stdio(
+            Cursor::new("{\"jsonrpc\":\"1.0\",\"id\":9,\"method\":\"ping\"}\n"),
+            &mut output,
+        )
+        .unwrap();
+    let bad: serde_json::Value =
+        serde_json::from_str(std::str::from_utf8(&output).unwrap().trim()).unwrap();
+    assert_eq!(bad["error"]["code"], -32600);
+    assert_eq!(bad["id"], 9);
+    assert!(bad.get("result").is_none());
+
+    let mut output = Vec::new();
+    server
+        .run_stdio(
+            Cursor::new("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}\n"),
+            &mut output,
+        )
+        .unwrap();
+    let listed: serde_json::Value =
+        serde_json::from_str(std::str::from_utf8(&output).unwrap().trim()).unwrap();
+    assert_eq!(listed["id"], 3);
+    assert!(!listed["result"]["tools"].as_array().unwrap().is_empty());
+
+    let mut output = Vec::new();
+    server
+        .run_stdio(Cursor::new("not-json\n"), &mut output)
+        .unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(std::str::from_utf8(&output).unwrap().trim()).unwrap();
+    assert_eq!(parsed["error"]["code"], -32700);
+}
+
+#[test]
+fn connect_write_preserves_client_files() {
+    let home = tempdir().unwrap();
+    let root = home.path();
+
+    let codex = root.join(".codex/config.toml");
+    fs::create_dir_all(codex.parent().unwrap()).unwrap();
+    fs::write(
+        &codex,
+        "\
+model = \"keep-me\"
+disable_response_storage = true
+
+[mcp_servers.other]
+command = \"npx\"
+args = [\"-y\", \"other\"]
+
+[projects.\"/work/repo\"]
+trust_level = \"trusted\"
+",
+    )
+    .unwrap();
+    AgentConnector::connect_at(root, "codex", true).unwrap();
+    let codex_text = fs::read_to_string(&codex).unwrap();
+    let codex_doc =
+        AgentConnector::parse_config_document(&AgentTarget::Codex, &codex_text).unwrap();
+    assert_eq!(codex_doc["model"], "keep-me");
+    assert_eq!(codex_doc["disable_response_storage"].as_bool(), Some(true));
+    assert_eq!(codex_doc["mcp_servers"]["other"]["command"], "npx");
+    assert_eq!(
+        codex_doc["mcp_servers"]["other"]["args"].clone(),
+        json!(["-y", "other"])
+    );
+    assert_eq!(codex_doc["mcp_servers"]["02"]["command"], "02");
+    assert_eq!(
+        codex_doc["mcp_servers"]["02"]["args"].clone(),
+        json!(["mcp"])
+    );
+    assert_eq!(
+        codex_doc["projects"]["/work/repo"]["trust_level"],
+        "trusted"
+    );
+
+    let broken = root.join(".codex/config.toml");
+    let original = "mcp_servers = \"nope\"\n";
+    fs::write(&broken, original).unwrap();
+    assert!(AgentConnector::connect_at(root, "codex", true).is_err());
+    assert_eq!(fs::read_to_string(&broken).unwrap(), original);
+
+    fs::write(
+        &codex,
+        "model = \"keep-me\"\n\n[mcp_servers.other]\ncommand = \"npx\"\nargs = [\"-y\", \"other\"]\n",
+    )
+    .unwrap();
+    AgentConnector::connect_at(root, "codex", true).unwrap();
+
+    let opencode = root.join(".config/opencode/opencode.json");
+    fs::create_dir_all(opencode.parent().unwrap()).unwrap();
+    fs::write(
+        &opencode,
+        r#"{"$schema":"https://opencode.ai/config.json","theme":"dark","mcp":{"other":{"type":"remote","url":"https://example.com","enabled":true}}}"#,
+    )
+    .unwrap();
+    AgentConnector::connect_at(root, "opencode", true).unwrap();
+    let opencode_doc: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&opencode).unwrap()).unwrap();
+    assert_eq!(opencode_doc["$schema"], "https://opencode.ai/config.json");
+    assert_eq!(opencode_doc["theme"], "dark");
+    assert_eq!(opencode_doc["mcp"]["other"]["type"], "remote");
+    assert_eq!(
+        opencode_doc["mcp"]["other"]["enabled"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(opencode_doc["mcp"]["02"]["type"], "local");
+    assert_eq!(
+        opencode_doc["mcp"]["02"]["command"].clone(),
+        json!(["02", "mcp"])
+    );
+
+    let claude = root.join(".claude.json");
+    fs::write(
+        &claude,
+        r#"{"numStartups":4,"projects":{"/work":{"mcpServers":{"local":{"command":"keep"}}}},"mcpServers":{"other":{"command":"keep","args":["x"]}}}"#,
+    )
+    .unwrap();
+    AgentConnector::connect_at(root, "claude", true).unwrap();
+    let claude_doc: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&claude).unwrap()).unwrap();
+    assert_eq!(claude_doc["numStartups"].as_i64(), Some(4));
+    assert_eq!(
+        claude_doc["projects"]["/work"]["mcpServers"]["local"]["command"],
+        "keep"
+    );
+    assert_eq!(claude_doc["mcpServers"]["other"]["command"], "keep");
+    assert_eq!(claude_doc["mcpServers"]["02"]["command"], "02");
+    assert_eq!(
+        claude_doc["mcpServers"]["02"]["args"].clone(),
+        json!(["mcp"])
+    );
+
+    let gemini = root.join(".gemini/settings.json");
+    fs::create_dir_all(gemini.parent().unwrap()).unwrap();
+    fs::write(
+        &gemini,
+        r#"{"theme":"dark","mcpServers":{"other":{"command":"keep","args":[]}}}"#,
+    )
+    .unwrap();
+    AgentConnector::connect_at(root, "gemini", true).unwrap();
+    let gemini_doc: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&gemini).unwrap()).unwrap();
+    assert_eq!(gemini_doc["theme"], "dark");
+    assert_eq!(gemini_doc["mcpServers"]["other"]["command"], "keep");
+    assert_eq!(
+        gemini_doc["mcpServers"]["02"]["args"].clone(),
+        json!(["mcp"])
+    );
+
+    assert_eq!(
+        AgentTarget::parse("cursor").config_path(root).unwrap(),
+        root.join(".cursor/mcp.json")
+    );
+    assert_eq!(
+        AgentTarget::parse("zed").config_path(root).unwrap(),
+        root.join(".config/zed/settings.json")
+    );
 }

@@ -1,7 +1,8 @@
 use agent_core::{paths::StoragePaths, AgentError, Result};
 use std::env;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::io::ErrorKind;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -56,18 +57,50 @@ impl DaemonSocket {
         }
     }
 
-    /// Bind to Unix domain socket, cleaning up stale sockets if present.
+    /// Bind to Unix domain socket, replacing only a stale socket we own.
     pub fn bind(path: &PathBuf) -> Result<UnixListener> {
-        if path.exists() {
-            // Check if another daemon instance is actively listening
-            if UnixStream::connect(path).is_ok() {
-                return Err(AgentError::General(format!(
-                    "Another 02-agentd daemon is already listening on {}",
-                    path.display()
-                )));
+        match fs::symlink_metadata(path) {
+            Ok(meta) => {
+                let kind = meta.file_type();
+                // lstat: a symlink is not a socket, even if its target is one.
+                if kind.is_symlink() || !kind.is_socket() {
+                    let label = if kind.is_symlink() {
+                        "symlink"
+                    } else if kind.is_dir() {
+                        "directory"
+                    } else if kind.is_file() {
+                        "regular file"
+                    } else {
+                        "non-socket"
+                    };
+                    return Err(AgentError::General(format!(
+                        "Refusing to replace {} at {} (not a socket)",
+                        label,
+                        path.display()
+                    )));
+                }
+                if meta.uid() != Self::current_uid() {
+                    return Err(AgentError::General(format!(
+                        "Refusing to unlink socket {} owned by uid {}",
+                        path.display(),
+                        meta.uid()
+                    )));
+                }
+                if UnixStream::connect(path).is_ok() {
+                    return Err(AgentError::General(format!(
+                        "Another 02-agentd daemon is already listening on {}",
+                        path.display()
+                    )));
+                }
+                fs::remove_file(path).map_err(|err| {
+                    AgentError::General(format!(
+                        "Failed to unlink stale socket {}: {err}",
+                        path.display()
+                    ))
+                })?;
             }
-            // Stale socket from previous run; safe to unlink
-            let _ = fs::remove_file(path);
+            Err(err) if err.kind() == ErrorKind::NotFound => {}
+            Err(err) => return Err(err.into()),
         }
 
         if let Some(parent) = path.parent() {

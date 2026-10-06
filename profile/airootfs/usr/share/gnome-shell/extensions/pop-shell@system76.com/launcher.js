@@ -33,9 +33,10 @@ export class Launcher extends search.Search {
             this.opened = false;
         };
         this.search = (pat) => {
-            if (this.service !== null) {
+            if (this.service === null && this.opened)
+                this.start_services();
+            if (this.service !== null)
                 this.service.query(pat);
-            }
         };
         this.select = (id) => {
             ext.overlay.visible = false;
@@ -272,11 +273,23 @@ export class Launcher extends search.Search {
         let height = mon_work_area.height >= 900 ? mon_work_area.height / 2 : mon_work_area.height / 3.5;
         this.dialog.dialogLayout.y = height - this.dialog.dialogLayout.height / 2;
     }
+    on_service_closed(closed) {
+        if (this.service === closed)
+            this.service = null;
+    }
     start_services() {
         if (this.service === null) {
             log.debug('starting pop-launcher service');
             const ipc = utils.async_process_ipc(['pop-launcher']);
-            this.service = ipc ? new service.LauncherService(ipc, (resp) => this.on_response(resp)) : null;
+            if (!ipc) {
+                this.service = null;
+                return;
+            }
+            let launcher_service = null;
+            launcher_service = new service.LauncherService(ipc, (resp) => this.on_response(resp), () => {
+                this.on_service_closed(launcher_service);
+            });
+            this.service = launcher_service;
         }
     }
     stop_services(_ext) {

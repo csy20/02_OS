@@ -23,6 +23,124 @@ fn floor_char_boundary(content: &str, mut index: usize) -> usize {
     index
 }
 
+/// `{file_path}::{scope}::{name}@{start_byte}`.
+/// Scope is enclosing symbol names joined by `::`; an empty scope leaves that slot blank.
+pub(crate) fn declaration_id(
+    file_path: &str,
+    scope: &[String],
+    name: &str,
+    start_byte: usize,
+) -> String {
+    format!("{file_path}::{}::{name}@{start_byte}", scope.join("::"))
+}
+
+fn scope_with(scope: &[String], name: &str) -> Vec<String> {
+    let mut next = Vec::with_capacity(scope.len() + 1);
+    next.extend_from_slice(scope);
+    next.push(name.to_string());
+    next
+}
+
+struct ChildEnv {
+    scope: Vec<String>,
+    current: Option<String>,
+}
+
+struct WalkFrame<'a> {
+    node: Node<'a>,
+    scope: Vec<String>,
+    current: Option<String>,
+}
+
+fn same_env(scope: &[String], current: Option<&str>) -> ChildEnv {
+    ChildEnv {
+        scope: scope.to_vec(),
+        current: current.map(str::to_string),
+    }
+}
+
+fn enter_symbol(scope: &[String], name: &str) -> ChildEnv {
+    ChildEnv {
+        scope: scope_with(scope, name),
+        current: Some(name.to_string()),
+    }
+}
+
+fn enter_scope(scope: &[String], current: Option<&str>, name: &str) -> ChildEnv {
+    ChildEnv {
+        scope: scope_with(scope, name),
+        current: current.map(str::to_string),
+    }
+}
+
+/// Explicit heap stack. Nested expressions must not grow the native call stack.
+fn walk_nodes<'a>(
+    root: Node<'a>,
+    current: Option<&str>,
+    mut visit: impl FnMut(Node<'a>, &[String], Option<&str>) -> ChildEnv,
+) {
+    let mut stack = vec![WalkFrame {
+        node: root,
+        scope: Vec::new(),
+        current: current.map(str::to_string),
+    }];
+    while let Some(frame) = stack.pop() {
+        let child_env = visit(frame.node, &frame.scope, frame.current.as_deref());
+        let mut cursor = frame.node.walk();
+        let children: Vec<Node<'a>> = frame.node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(WalkFrame {
+                node: child,
+                scope: child_env.scope.clone(),
+                current: child_env.current.clone(),
+            });
+        }
+    }
+}
+
+fn rust_scope_type_name<'a>(content: &'a str, mut node: Node<'a>) -> Option<&'a str> {
+    for _ in 0..8 {
+        if matches!(node.kind(), "type_identifier" | "identifier") {
+            let text = content.get(node.byte_range()).unwrap_or("").trim();
+            return if text.is_empty() { None } else { Some(text) };
+        }
+        let next = node
+            .child_by_field_name("name")
+            .or_else(|| node.child_by_field_name("type"));
+        match next {
+            Some(inner) if inner.id() != node.id() => node = inner,
+            _ => break,
+        }
+    }
+    None
+}
+
+/// Method and path calls store the identifier only. `SymbolReference` has no receiver field.
+fn rust_call_target<'a>(content: &'a str, func_node: Node<'a>) -> &'a str {
+    let node = if func_node.kind() == "generic_function" {
+        func_node
+            .child_by_field_name("function")
+            .unwrap_or(func_node)
+    } else {
+        func_node
+    };
+    let selected = match node.kind() {
+        "field_expression" => node
+            .child_by_field_name("field")
+            .and_then(|field| content.get(field.byte_range())),
+        "scoped_identifier" | "scoped_type_identifier" => node
+            .child_by_field_name("name")
+            .and_then(|name| content.get(name.byte_range())),
+        _ => None,
+    };
+    if let Some(text) = selected.map(str::trim).filter(|text| !text.is_empty()) {
+        return text;
+    }
+    let raw = content.get(node.byte_range()).unwrap_or("");
+    let after_path = raw.rsplit("::").next().unwrap_or(raw);
+    after_path.rsplit('.').next().unwrap_or(after_path).trim()
+}
+
 impl CodeExtractor {
     pub fn extract(file_path: &str, content: &str, language: Language) -> Result<ExtractionResult> {
         let mut result = match language {
@@ -57,6 +175,7 @@ impl CodeExtractor {
     ) -> Result<ExtractionResult> {
         match crate::grammar::extract(file_path, content, kind) {
             Some(result) => Ok(result),
+            // None means the parse itself failed, not that the module declared nothing.
             None => Self::extract_fallback(file_path, content),
         }
     }
@@ -105,8 +224,30 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
+        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
+            Self::visit_rust_node(
+                file_path,
+                content,
+                node,
+                scope,
+                current_symbol,
+                symbols,
+                references,
+            )
+        });
+    }
+
+    fn visit_rust_node<'a>(
+        file_path: &str,
+        content: &'a str,
+        node: Node<'a>,
+        scope: &[String],
+        current_symbol: Option<&str>,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+    ) -> ChildEnv {
         let kind = node.kind();
-        let mut active_symbol = current_symbol;
+        let mut child_env = same_env(scope, current_symbol);
 
         match kind {
             "function_item" => {
@@ -141,7 +282,7 @@ impl CodeExtractor {
                         || pre_slice.contains("#[test]");
 
                     let sym = Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Function,
@@ -153,7 +294,7 @@ impl CodeExtractor {
                         fingerprint: Self::symbol_fingerprint(full_text),
                     };
                     symbols.push(sym);
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
 
                     if is_test {
                         // Mark test reference
@@ -181,7 +322,7 @@ impl CodeExtractor {
                     };
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: sym_kind,
@@ -192,18 +333,28 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
+                }
+            }
+            "mod_item" => {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let name = &content[name_node.byte_range()];
+                    if !name.is_empty() {
+                        child_env = enter_scope(scope, current_symbol, name);
+                    }
+                }
+            }
+            "impl_item" => {
+                if let Some(type_node) = node.child_by_field_name("type") {
+                    if let Some(name) = rust_scope_type_name(content, type_node) {
+                        child_env = enter_scope(scope, current_symbol, name);
+                    }
                 }
             }
             "call_expression" => {
                 if let Some(func_node) = node.child_by_field_name("function") {
-                    let target_name = &content[func_node.byte_range()];
+                    let clean_target = rust_call_target(content, func_node);
                     let line = node.start_position().row + 1;
-                    let clean_target = target_name
-                        .rsplit("::")
-                        .next()
-                        .unwrap_or(target_name)
-                        .trim();
 
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
@@ -234,17 +385,7 @@ impl CodeExtractor {
             _ => {}
         }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_rust_node(
-                file_path,
-                content,
-                child,
-                symbols,
-                references,
-                active_symbol,
-            );
-        }
+        child_env
     }
 
     // -------------------------------------------------------------
@@ -285,8 +426,30 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
+        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
+            Self::visit_python_node(
+                file_path,
+                content,
+                node,
+                scope,
+                current_symbol,
+                symbols,
+                references,
+            )
+        });
+    }
+
+    fn visit_python_node<'a>(
+        file_path: &str,
+        content: &'a str,
+        node: Node<'a>,
+        scope: &[String],
+        current_symbol: Option<&str>,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+    ) -> ChildEnv {
         let kind = node.kind();
-        let mut active_symbol = current_symbol;
+        let mut child_env = same_env(scope, current_symbol);
 
         match kind {
             "function_definition" => {
@@ -298,7 +461,7 @@ impl CodeExtractor {
                     let sig = full_text.lines().next().unwrap_or(name).to_string();
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Function,
@@ -309,7 +472,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
 
                     if name.starts_with("test_") {
                         references.push(SymbolReference {
@@ -331,7 +494,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Class,
@@ -342,7 +505,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
                 }
             }
             "call" => {
@@ -376,17 +539,7 @@ impl CodeExtractor {
             _ => {}
         }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_python_node(
-                file_path,
-                content,
-                child,
-                symbols,
-                references,
-                active_symbol,
-            );
-        }
+        child_env
     }
 
     // -------------------------------------------------------------
@@ -427,8 +580,30 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
+        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
+            Self::visit_c_node(
+                file_path,
+                content,
+                node,
+                scope,
+                current_symbol,
+                symbols,
+                references,
+            )
+        });
+    }
+
+    fn visit_c_node<'a>(
+        file_path: &str,
+        content: &'a str,
+        node: Node<'a>,
+        scope: &[String],
+        current_symbol: Option<&str>,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+    ) -> ChildEnv {
         let kind = node.kind();
-        let mut active_symbol = current_symbol;
+        let mut child_env = same_env(scope, current_symbol);
 
         match kind {
             "function_definition" => {
@@ -445,7 +620,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, func_name, start_line),
+                        id: declaration_id(file_path, scope, func_name, node.start_byte()),
                         name: func_name.to_string(),
                         qualified_name: format!("{}::{}", file_path, func_name),
                         kind: SymbolKind::Function,
@@ -456,7 +631,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(func_name);
+                    child_env = enter_symbol(scope, func_name);
                 }
             }
             "struct_specifier" => {
@@ -467,7 +642,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Struct,
@@ -478,6 +653,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
+                    child_env = enter_scope(scope, current_symbol, name);
                 }
             }
             "call_expression" => {
@@ -509,17 +685,7 @@ impl CodeExtractor {
             _ => {}
         }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_c_node(
-                file_path,
-                content,
-                child,
-                symbols,
-                references,
-                active_symbol,
-            );
-        }
+        child_env
     }
 
     // -------------------------------------------------------------
@@ -560,8 +726,30 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
+        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
+            Self::visit_bash_node(
+                file_path,
+                content,
+                node,
+                scope,
+                current_symbol,
+                symbols,
+                references,
+            )
+        });
+    }
+
+    fn visit_bash_node<'a>(
+        file_path: &str,
+        content: &'a str,
+        node: Node<'a>,
+        scope: &[String],
+        current_symbol: Option<&str>,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+    ) -> ChildEnv {
         let kind = node.kind();
-        let mut active_symbol = current_symbol;
+        let mut child_env = same_env(scope, current_symbol);
 
         match kind {
             "function_definition" => {
@@ -572,7 +760,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Function,
@@ -583,7 +771,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
                 }
             }
             "variable_assignment" => {
@@ -594,7 +782,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Variable,
@@ -605,6 +793,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
+                    child_env = enter_scope(scope, current_symbol, name);
                 }
             }
             "command" => {
@@ -625,17 +814,7 @@ impl CodeExtractor {
             _ => {}
         }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_bash_node(
-                file_path,
-                content,
-                child,
-                symbols,
-                references,
-                active_symbol,
-            );
-        }
+        child_env
     }
 
     // -------------------------------------------------------------
@@ -676,8 +855,30 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
+        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
+            Self::visit_js_node(
+                file_path,
+                content,
+                node,
+                scope,
+                current_symbol,
+                symbols,
+                references,
+            )
+        });
+    }
+
+    fn visit_js_node<'a>(
+        file_path: &str,
+        content: &'a str,
+        node: Node<'a>,
+        scope: &[String],
+        current_symbol: Option<&str>,
+        symbols: &mut Vec<Symbol>,
+        references: &mut Vec<SymbolReference>,
+    ) -> ChildEnv {
         let kind = node.kind();
-        let mut active_symbol = current_symbol;
+        let mut child_env = same_env(scope, current_symbol);
 
         match kind {
             "function_declaration" | "method_definition" => {
@@ -688,7 +889,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Function,
@@ -699,7 +900,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
                 }
             }
             "class_declaration" => {
@@ -710,7 +911,7 @@ impl CodeExtractor {
                     let full_text = &content[node.byte_range()];
 
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, name, start_line),
+                        id: declaration_id(file_path, scope, name, node.start_byte()),
                         name: name.to_string(),
                         qualified_name: format!("{}::{}", file_path, name),
                         kind: SymbolKind::Class,
@@ -721,7 +922,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    active_symbol = Some(name);
+                    child_env = enter_symbol(scope, name);
                 }
             }
             "call_expression" => {
@@ -761,17 +962,7 @@ impl CodeExtractor {
             _ => {}
         }
 
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            Self::walk_js_node(
-                file_path,
-                content,
-                child,
-                symbols,
-                references,
-                active_symbol,
-            );
-        }
+        child_env
     }
 
     fn extract_fallback(file_path: &str, content: &str) -> Result<ExtractionResult> {
@@ -780,14 +971,16 @@ impl CodeExtractor {
 
         let func_re = Regex::new(r"^(?:pub\s+)?(?:async\s+)?def\s+([A-Za-z0-9_]+)|^fn\s+([A-Za-z0-9_]+)|function\s+([A-Za-z0-9_]+)").unwrap();
 
-        for (idx, line) in content.lines().enumerate() {
+        let mut byte = 0usize;
+        for (idx, line) in content.split('\n').enumerate() {
             let line_num = idx + 1;
             if let Some(caps) = func_re.captures(line.trim()) {
                 let name = caps.get(1).or_else(|| caps.get(2)).or_else(|| caps.get(3));
                 if let Some(m) = name {
                     let sym_name = m.as_str();
+                    let leading = line.len() - line.trim_start().len();
                     symbols.push(Symbol {
-                        id: format!("{}::{}::{}", file_path, sym_name, line_num),
+                        id: declaration_id(file_path, &[], sym_name, byte + leading),
                         name: sym_name.to_string(),
                         qualified_name: format!("{}::{}", file_path, sym_name),
                         kind: SymbolKind::Function,
@@ -800,6 +993,7 @@ impl CodeExtractor {
                     });
                 }
             }
+            byte += line.len() + 1;
         }
 
         Ok(ExtractionResult {

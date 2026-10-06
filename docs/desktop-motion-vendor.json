@@ -43,9 +43,23 @@
     {
       "uuid": "pop-shell@system76.com",
       "version": 2,
+      "repository": "https://github.com/pop-os/shell",
+      "branch": "master_noble",
+      "upstream_url": "https://github.com/pop-os/shell/tree/master_noble",
+      "license": "GPL-3.0-only",
+      "license_file": "LICENSE",
+      "license_source": "https://raw.githubusercontent.com/pop-os/shell/master_noble/LICENSE",
+      "snapshot_commit_verified": false,
+      "inspected_upstream_head": "7898b65c20735057faf0797f8ed056704ca55f0d",
+      "content_sha256": "15a4e0b6f8bdf250d90494911b4f1b400e572ad29c2fd2fac650db6a10da1c0c",
+      "content_sha256_excludes": ["PROVENANCE.md"],
       "files": ["window.js"],
       "local_changes": [
-        "Recheck active-hint on each border timer tick so turning the outline off keeps it hidden."
+        "Recheck active-hint on each border timer tick so turning the outline off keeps it hidden.",
+        "Escape user-selected floating-exception titles and classes, and match invalid persisted patterns literally.",
+        "Compare both entity slot and generation, and allocate a fresh id when a slot is recycled.",
+        "Drop a dead pop-launcher service on backend EOF so a later search can start a new one.",
+        "metadata.json lists shell-version 51 in addition to upstream master_noble versions 45-50."
       ]
     }
   ]

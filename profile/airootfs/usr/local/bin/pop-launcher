@@ -12,13 +12,24 @@ def application_dirs():
     seen = set()
 
     def add(path):
-        key = str(path)
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
         if key in seen:
             return
         seen.add(key)
         dirs.append(path)
 
-    for entry in os.environ.get("XDG_DATA_DIRS", "").split(":"):
+    data_home = os.environ.get("XDG_DATA_HOME", "").strip()
+    if not data_home:
+        data_home = str(Path.home() / ".local" / "share")
+    add(Path(data_home) / "applications")
+
+    data_dirs = os.environ.get("XDG_DATA_DIRS")
+    if data_dirs is None or not data_dirs.strip():
+        data_dirs = "/usr/local/share:/usr/share"
+    for entry in data_dirs.split(":"):
         if not entry:
             continue
         root = Path(entry)
@@ -77,9 +88,13 @@ def parse_desktop(path):
     }
 
 
+def desktop_file_id(path):
+    return path.name
+
+
 def load_apps():
     apps = []
-    seen = set()
+    seen_ids = set()
     for directory in application_dirs():
         if not directory.is_dir():
             continue
@@ -90,16 +105,14 @@ def load_apps():
         for path in paths:
             if not path.is_file():
                 continue
-            try:
-                resolved = str(path.resolve())
-            except OSError:
-                resolved = str(path)
-            if resolved in seen:
+            file_id = desktop_file_id(path)
+            if file_id in seen_ids:
                 continue
+            # Record the id before parsing so Hidden=true overrides a later system entry.
+            seen_ids.add(file_id)
             item = parse_desktop(path)
             if item is None:
                 continue
-            seen.add(resolved)
             apps.append(item)
     apps.sort(key=lambda app: (app["name"].casefold(), app["path"]))
     return apps
@@ -142,7 +155,8 @@ def main():
         if message == "Exit":
             return 0
         if isinstance(message, dict) and "Quit" in message:
-            return 0
+            # Item Quit is not process shutdown. Exit is the only shutdown message.
+            continue
         if not isinstance(message, dict):
             continue
         if "Search" in message:

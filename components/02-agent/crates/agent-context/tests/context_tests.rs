@@ -1,4 +1,4 @@
-use agent_context::ContextCompiler;
+use agent_context::{estimate_tokens, ContextCompiler};
 use agent_core::{
     config::RepoConfig,
     types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus, RepoId, RepoInfo},
@@ -242,22 +242,9 @@ fn test_context_budget_ignores_files_past_the_return_cap() {
     assert!(package.relevant_files.len() <= 15);
     assert_eq!(package.budget.returned_files, package.relevant_files.len());
 
-    let snippet_tokens: usize = package
-        .relevant_files
-        .iter()
-        .map(|file| {
-            file.snippet
-                .as_deref()
-                .map(|text| text.len().div_ceil(4))
-                .unwrap_or(0)
-        })
-        .sum();
-    assert!(
-        package.budget.returned_tokens <= snippet_tokens + 2000,
-        "returned_tokens {} charged more than retained snippets {}",
-        package.budget.returned_tokens,
-        snippet_tokens
-    );
+    let payload = package.serialized_payload();
+    assert!(estimate_tokens(&payload) <= 100_000);
+    assert_eq!(package.budget.returned_tokens, estimate_tokens(&payload));
 }
 
 #[test]
@@ -372,4 +359,69 @@ fn context_redacts_secrets_and_obeys_a_tight_budget() {
         .any(|memory| memory.id == "mem_invalid"));
     assert!(wide.to_markdown().contains("not verified"));
     assert!(!wide.to_markdown().contains(&token));
+}
+
+#[test]
+fn context_redacts_commit_summaries() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    let sig = git2::Signature::now("Engineer", "dev@02os.org").unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn rotate_refresh_token() {}\n",
+    )
+    .unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("src/lib.rs")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let token = format!("ghp_{}", "x".repeat(36));
+    repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        &format!("rotate {token} now"),
+        &tree,
+        &[],
+    )
+    .unwrap();
+
+    let repo_id = RepoId::from_path(root);
+    let mut db =
+        IndexDatabase::open(agent_core::paths::StoragePaths::repo_db_path(&repo_id).unwrap())
+            .unwrap();
+    db.update_repo_info(&RepoInfo {
+        id: repo_id,
+        name: "history".into(),
+        root_path: root.to_path_buf(),
+        head_commit: Some("abc".into()),
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+
+    let package = ContextCompiler::compile(root, "rotate", 8000).unwrap();
+    assert!(!package.git_context.recent_commits.is_empty());
+    assert!(package
+        .git_context
+        .recent_commits
+        .iter()
+        .any(|commit| commit.summary.contains("[REDACTED]")));
+    assert!(package
+        .git_context
+        .recent_commits
+        .iter()
+        .all(|commit| { !commit.summary.contains(&token) && !commit.author.contains(&token) }));
+    let markdown = package.to_markdown();
+    let payload = package.serialized_payload();
+    assert!(!markdown.contains(&token));
+    assert!(markdown.contains("[REDACTED]"));
+    assert!(!payload.contains(&token));
+    assert!(payload.contains("[REDACTED]"));
+    assert!(estimate_tokens(&payload) <= 8000);
+    assert_eq!(package.budget.returned_tokens, estimate_tokens(&payload));
 }

@@ -167,6 +167,33 @@ impl Language {
             Self::Unknown => "unknown",
         }
     }
+
+    /// The tree-sitter extractors cover these languages. Markup and fallback-only
+    /// kinds such as Markdown or SQL do not.
+    pub fn extracts_symbols(self) -> bool {
+        matches!(
+            self,
+            Self::Rust
+                | Self::Python
+                | Self::TypeScript
+                | Self::JavaScript
+                | Self::C
+                | Self::Cpp
+                | Self::Bash
+                | Self::Dart
+                | Self::Go
+        )
+    }
+
+    /// True when `path`'s extension is a language the parser can extract symbols from.
+    /// Matching is case-insensitive via `from_extension`.
+    pub fn path_extracts_symbols(path: &str) -> bool {
+        let extension = Path::new(path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        Self::from_extension(extension).extracts_symbols()
+    }
 }
 
 /// Metadata for an indexed file.

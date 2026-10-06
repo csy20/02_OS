@@ -162,6 +162,39 @@ impl IndexDatabase {
         Ok(())
     }
 
+    /// Record that a repository was opened.
+    ///
+    /// Inserts a new row with the given fields. On conflict, updates only name,
+    /// root path, and branch. `head_commit` and `indexed_at` of an existing row
+    /// stay at the last successful index.
+    pub fn note_repo_presence(&mut self, info: &RepoInfo) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn
+            .execute(
+                r#"
+                INSERT INTO repositories (repo_id, name, root_path, head_commit, branch, indexed_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(repo_id) DO UPDATE SET
+                    name = excluded.name,
+                    root_path = excluded.root_path,
+                    branch = excluded.branch
+                "#,
+                params![
+                    info.id.as_str(),
+                    info.name,
+                    info.root_path.to_string_lossy(),
+                    info.head_commit,
+                    info.branch,
+                    now
+                ],
+            )
+            .map_err(|e| {
+                AgentError::Database(format!("Failed to note repository presence: {}", e))
+            })?;
+
+        Ok(())
+    }
+
     /// Save scanned files and populate FTS5 search index.
     pub fn save_scanned_files(
         &mut self,

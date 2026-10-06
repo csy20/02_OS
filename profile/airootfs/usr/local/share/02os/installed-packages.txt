@@ -1,0 +1,8 @@
+# Installed by 02os-install for a GNOME system, before final provisioning.
+# Archinstall's GNOME profile is only gnome and gnome-tweaks. These are the
+# themes, cursors, font, browser, and icon fallback the 02 desktop defaults use.
+adw-gtk-theme
+capitaine-cursors
+firefox
+inter-font
+papirus-icon-theme

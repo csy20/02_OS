@@ -30,6 +30,7 @@ import GObject from 'gi://GObject';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { WobblyModel } from './wobbly_model.js';
+import { safe_speedup_divider } from '../../settings_data.js';
 
 export class WobblyEffect extends Clutter.DeformEffect {
     static {
@@ -71,7 +72,7 @@ export class WobblyEffect extends Clutter.DeformEffect {
 
         this.FRICTION = this.settingsData.FRICTION.get();
         this.SPRING_K = this.settingsData.SPRING_K.get();
-        this.SPEEDUP_FACTOR = this.settingsData.SPEEDUP_FACTOR.get();
+        this.SPEEDUP_FACTOR = safe_speedup_divider(this.settingsData.SPEEDUP_FACTOR.get());
         this.MASS = this.settingsData.MASS.get();
         this.X_TILES = 'maximized' === this.operationType ? 10 : this.settingsData.X_TILES.get();
         this.Y_TILES = 'maximized' === this.operationType ? 10 : this.settingsData.Y_TILES.get();
@@ -226,7 +227,7 @@ export class WobblyEffect extends Clutter.DeformEffect {
             return;
         }
 
-        this.wobblyModel.step((msec - this.msecOld) / this.SPEEDUP_FACTOR);
+        this.wobblyModel.step((msec - this.msecOld) / safe_speedup_divider(this.SPEEDUP_FACTOR));
         this.msecOld = msec;
 
         let x, y;

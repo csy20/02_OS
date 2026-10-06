@@ -4,11 +4,29 @@ use agent_core::{
 };
 use agent_git::GitRepo;
 use agent_index::{IndexDatabase, RepoScanner};
-use agent_memory::{MemoryStore, StalenessEngine};
+use agent_memory::{index_pipeline, MemoryStore, RepoHandle, StalenessEngine, TaskRegistry};
 use chrono::Utc;
 use git2::Repository;
 use std::fs;
+use std::os::unix::fs::symlink;
 use tempfile::tempdir;
+
+fn commit_paths(repo: &Repository, message: &str, paths: &[&str]) {
+    let mut index = repo.index().unwrap();
+    for path in paths {
+        index.add_path(std::path::Path::new(path)).unwrap();
+    }
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let sig = git2::Signature::now("Tester", "test@02os.org").unwrap();
+    let parents: Vec<git2::Commit> = match repo.head() {
+        Ok(head) => vec![head.peel_to_commit().unwrap()],
+        Err(_) => Vec::new(),
+    };
+    let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parent_refs)
+        .unwrap();
+}
 
 #[test]
 fn test_staleness_engine_detection() {
@@ -277,4 +295,332 @@ fn deleting_a_function_marks_its_memory_stale_after_reindex() {
     );
     assert_eq!(report.fresh_count, 1);
     assert_eq!(report.stale_count, 1);
+}
+
+fn index_symbols(root: &std::path::Path, repo_id: &RepoId, db: &mut IndexDatabase) {
+    let scanned = RepoScanner::new(root, RepoConfig::default()).scan();
+    db.save_scanned_files(repo_id, &scanned).unwrap();
+    let mut symbols = Vec::new();
+    let mut references = Vec::new();
+    for item in &scanned {
+        if let Some(text) = &item.content {
+            let extracted = agent_parser::CodeExtractor::extract(
+                &item.file.relative_path,
+                text,
+                item.file.language,
+            )
+            .unwrap();
+            symbols.extend(extracted.symbols);
+            references.extend(extracted.references);
+        }
+    }
+    db.save_symbols_and_references(repo_id, &symbols, &references)
+        .unwrap();
+}
+
+fn evidence_memory(
+    id: &str,
+    file: &str,
+    symbol: &str,
+    fingerprint: Option<String>,
+) -> EvidenceMemory {
+    EvidenceMemory {
+        id: id.into(),
+        claim: format!("{symbol} in {file}"),
+        kind: MemoryKind::ArchitecturalFact,
+        evidence: vec![EvidenceItem {
+            file: file.into(),
+            symbols: vec![symbol.into()],
+            commit: "abc".into(),
+            fingerprint,
+        }],
+        valid_at: "abc".into(),
+        confidence: 1.0,
+        status: MemoryStatus::Fresh,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+#[test]
+fn symlink_outside_the_repo_does_not_leak_into_changed_symbols() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/tracked.rs"), "pub fn local_symbol() {}\n").unwrap();
+    commit_paths(&repo, "init", &["src/tracked.rs"]);
+
+    let repo_id = RepoId::from_path(root);
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    db.update_repo_info(&agent_core::types::RepoInfo {
+        id: repo_id.clone(),
+        name: "symlink".into(),
+        root_path: root.to_path_buf(),
+        head_commit: None,
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    index_symbols(root, &repo_id, &mut db);
+
+    let outside = tempdir().unwrap();
+    let external = outside.path().join("external.rs");
+    fs::write(&external, "pub fn PRIVATE_EXTERNAL_SYMBOL_MARKER() {}\n").unwrap();
+    fs::remove_file(root.join("src/tracked.rs")).unwrap();
+    symlink(&external, root.join("src/tracked.rs")).unwrap();
+
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert!(report
+        .modified_files
+        .iter()
+        .any(|path| path == "src/tracked.rs"));
+    assert!(report
+        .changed_symbols
+        .iter()
+        .all(|name| { !name.contains("PRIVATE_EXTERNAL_SYMBOL_MARKER") }));
+}
+
+#[test]
+fn oversized_diff_files_are_not_parsed_into_changed_symbols() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/big.rs"), "pub fn small() {}\n").unwrap();
+    commit_paths(&repo, "init", &["src/big.rs"]);
+
+    let repo_id = RepoId::from_path(root);
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    db.update_repo_info(&agent_core::types::RepoInfo {
+        id: repo_id.clone(),
+        name: "oversize".into(),
+        root_path: root.to_path_buf(),
+        head_commit: None,
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    index_symbols(root, &repo_id, &mut db);
+
+    fs::create_dir_all(root.join(".02agent")).unwrap();
+    fs::write(root.join(".02agent/config.toml"), "max_file_size_kb = 1\n").unwrap();
+    let body = format!(
+        "pub fn OVERSIZED_PRIVATE_MARKER() {{\n{}\n}}\n",
+        "    let padding = 1;\n".repeat(80)
+    );
+    assert!(body.len() > 1024);
+    fs::write(root.join("src/big.rs"), body).unwrap();
+
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert!(report
+        .modified_files
+        .iter()
+        .any(|path| path == "src/big.rs"));
+    assert!(report
+        .changed_symbols
+        .iter()
+        .all(|name| !name.contains("OVERSIZED_PRIVATE_MARKER")));
+}
+
+#[test]
+fn same_symbol_name_in_another_file_stays_fresh() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/a.rs"),
+        "pub fn same_name() {\n    let value = 1;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/b.rs"),
+        "pub fn same_name() {\n    let value = 1;\n}\n",
+    )
+    .unwrap();
+    commit_paths(&repo, "init", &["src/a.rs", "src/b.rs"]);
+
+    let repo_id = RepoId::from_path(root);
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    db.update_repo_info(&agent_core::types::RepoInfo {
+        id: repo_id.clone(),
+        name: "same-name".into(),
+        root_path: root.to_path_buf(),
+        head_commit: None,
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    index_symbols(root, &repo_id, &mut db);
+
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    store
+        .save(&evidence_memory("mem_a", "src/a.rs", "same_name", None))
+        .unwrap();
+    store
+        .save(&evidence_memory("mem_b", "src/b.rs", "same_name", None))
+        .unwrap();
+
+    fs::write(
+        root.join("src/a.rs"),
+        "pub fn same_name() {\n    let value = 2;\n}\n",
+    )
+    .unwrap();
+
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert!(report
+        .changed_symbols
+        .iter()
+        .any(|name| name == "same_name"));
+    assert!(report.modified_files.iter().any(|path| path == "src/a.rs"));
+    assert!(!report.modified_files.iter().any(|path| path == "src/b.rs"));
+    assert_eq!(
+        store.get("mem_a").unwrap().unwrap().status,
+        MemoryStatus::Degraded
+    );
+    assert_eq!(
+        store.get("mem_b").unwrap().unwrap().status,
+        MemoryStatus::Fresh
+    );
+    assert_eq!(store.get("mem_b").unwrap().unwrap().confidence, 1.0);
+}
+
+#[test]
+fn fingerprint_mismatch_stays_degraded_after_a_clean_reindex() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    let source = root.join("src/auth.rs");
+    fs::write(&source, "pub fn rotate_refresh_token() -> bool { true }\n").unwrap();
+    commit_paths(&repo, "init", &["src/auth.rs"]);
+
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+    let recorded = handle
+        .db
+        .list_symbols(handle.info.id.as_str())
+        .unwrap()
+        .into_iter()
+        .find(|symbol| symbol.name == "rotate_refresh_token")
+        .unwrap()
+        .fingerprint;
+    let repo_id = handle.info.id.clone();
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    store
+        .save(&evidence_memory(
+            "mem_rotate",
+            "src/auth.rs",
+            "rotate_refresh_token",
+            Some(recorded),
+        ))
+        .unwrap();
+
+    let git_repo = GitRepo::open(root).unwrap();
+    let matched = StalenessEngine::evaluate(root, &repo_id, &git_repo, &handle.db, &store).unwrap();
+    assert!(matched.changed_symbols.is_empty());
+    assert_eq!(matched.fresh_count, 1);
+    assert_eq!(
+        store.get("mem_rotate").unwrap().unwrap().status,
+        MemoryStatus::Fresh
+    );
+    drop(handle);
+
+    fs::write(&source, "pub fn rotate_refresh_token() -> bool { false }\n").unwrap();
+    commit_paths(&repo, "change body", &["src/auth.rs"]);
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &handle.db, &store).unwrap();
+    assert!(
+        report.changed_symbols.is_empty(),
+        "clean tree must not degrade through the diff path: {:?}",
+        report.changed_symbols
+    );
+    let stored = store.get("mem_rotate").unwrap().unwrap();
+    assert_eq!(stored.status, MemoryStatus::Degraded);
+    assert_eq!(stored.confidence, 0.70);
+}
+
+#[test]
+fn missing_tsx_symbol_stays_stale_after_a_clean_reindex() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let repo = Repository::init(root).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/Widget.tsx"),
+        "export function RemovedComponent() {\n  return 1;\n}\nexport function KeptComponent() {\n  return 1;\n}\n",
+    )
+    .unwrap();
+    commit_paths(&repo, "init", &["src/Widget.tsx"]);
+
+    let repo_id = RepoId::from_path(root);
+    let mut db = IndexDatabase::open_in_memory().unwrap();
+    db.update_repo_info(&agent_core::types::RepoInfo {
+        id: repo_id.clone(),
+        name: "tsx".into(),
+        root_path: root.to_path_buf(),
+        head_commit: None,
+        branch: Some("master".into()),
+        is_clean: true,
+        modified_count: 0,
+        untracked_count: 0,
+    })
+    .unwrap();
+    index_symbols(root, &repo_id, &mut db);
+
+    let store = MemoryStore::new(root.join("memories.jsonl"));
+    store
+        .save(&evidence_memory(
+            "mem_removed",
+            "src/Widget.tsx",
+            "RemovedComponent",
+            None,
+        ))
+        .unwrap();
+    store
+        .save(&evidence_memory(
+            "mem_kept",
+            "src/Widget.tsx",
+            "KeptComponent",
+            None,
+        ))
+        .unwrap();
+
+    fs::write(
+        root.join("src/Widget.tsx"),
+        "export function KeptComponent() {\n  return 1;\n}\n",
+    )
+    .unwrap();
+    commit_paths(&repo, "drop removed", &["src/Widget.tsx"]);
+    index_symbols(root, &repo_id, &mut db);
+
+    let git_repo = GitRepo::open(root).unwrap();
+    let report = StalenessEngine::evaluate(root, &repo_id, &git_repo, &db, &store).unwrap();
+    assert!(report.changed_symbols.is_empty());
+    assert_eq!(
+        store.get("mem_removed").unwrap().unwrap().status,
+        MemoryStatus::Stale
+    );
+    assert_eq!(store.get("mem_removed").unwrap().unwrap().confidence, 0.0);
+    assert_eq!(
+        store.get("mem_kept").unwrap().unwrap().status,
+        MemoryStatus::Fresh
+    );
 }

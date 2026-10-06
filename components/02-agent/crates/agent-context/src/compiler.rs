@@ -262,8 +262,8 @@ impl ContextCompiler {
         for c in all_recent {
             relevant_commits.push(RecentCommit {
                 commit_id: c.id,
-                author: c.author,
-                summary: c.summary,
+                author: SecretPattern::redact(&c.author),
+                summary: SecretPattern::redact(&c.summary),
                 timestamp: c.timestamp,
             });
         }
@@ -436,6 +436,10 @@ fn bound_text(text: &str, max_tokens: usize) -> String {
     text[..end].to_string()
 }
 
+fn payload_tokens(package: &EvidencePackage) -> usize {
+    estimate_tokens(&package.serialized_payload())
+}
+
 fn enforce_budget(package: &mut EvidencePackage) {
     if package.budget.budget_limit == 0 {
         package.relevant_files.clear();
@@ -449,17 +453,20 @@ fn enforce_budget(package: &mut EvidencePackage) {
         package.budget.returned_files = 0;
         return;
     }
-    for _ in 0..4096 {
-        package.budget.returned_tokens = 0;
-        let provisional = estimate_tokens(&package.to_markdown());
-        package.budget.returned_tokens = provisional;
-        let tokens = estimate_tokens(&package.to_markdown());
-        if tokens <= package.budget.budget_limit {
-            package.budget.returned_tokens = tokens;
+    let limit = package.budget.budget_limit;
+    for _ in 0..8192 {
+        let tokens = payload_tokens(package);
+        if tokens <= limit && package.budget.returned_tokens == tokens {
             return;
         }
+        if tokens <= limit {
+            package.budget.returned_tokens = tokens;
+            continue;
+        }
         if !drop_budget_item(package) {
-            package.budget.returned_tokens = estimate_tokens(&package.to_markdown());
+            package.budget.returned_tokens = tokens;
+            let adjusted = payload_tokens(package);
+            package.budget.returned_tokens = adjusted;
             return;
         }
     }
@@ -475,26 +482,26 @@ fn drop_budget_item(package: &mut EvidencePackage) -> bool {
         file.snippet = None;
         return true;
     }
+    if package.relevant_symbols.pop().is_some() {
+        return true;
+    }
+    if package.relevant_files.pop().is_some() {
+        package.budget.returned_files = package.relevant_files.len();
+        return true;
+    }
     if package.git_context.recent_commits.pop().is_some() {
-        return true;
-    }
-    if package.dependencies.pop().is_some() {
-        return true;
-    }
-    if package.diagnostic_memories.pop().is_some() {
         return true;
     }
     if package.verified_memories.pop().is_some() {
         return true;
     }
-    if package.relevant_symbols.pop().is_some() {
+    if package.diagnostic_memories.pop().is_some() {
+        return true;
+    }
+    if package.dependencies.pop().is_some() {
         return true;
     }
     if package.relevant_tests.pop().is_some() {
-        return true;
-    }
-    if package.relevant_files.pop().is_some() {
-        package.budget.returned_files = package.relevant_files.len();
         return true;
     }
     if !package.git_context.modified_files.is_empty() {

@@ -178,11 +178,9 @@ impl RepoScanner {
             .unwrap_or("")
             .to_lowercase();
 
-        // Tests
-        if lower.contains("/tests/")
-            || lower.contains("/test/")
-            || lower.contains("/spec/")
-            || lower.contains("/specs/")
+        // Tests. Match directory components at the root and nested (`tests/common.rs`
+        // has no leading slash, so a `/tests/` substring misses it).
+        if path_has_dir_component(&lower, &["tests", "test", "spec", "specs"])
             || file_name.starts_with("test_")
             || file_name.ends_with("_test.rs")
             || file_name.ends_with("_test.py")
@@ -260,4 +258,23 @@ impl RepoScanner {
 
         FileKind::Unknown
     }
+}
+
+/// True when any directory component of `rel_path` is one of `names`.
+/// The final component is the file name and is ignored.
+fn path_has_dir_component(rel_path: &str, names: &[&str]) -> bool {
+    let mut parts = Path::new(rel_path).components().peekable();
+    while let Some(component) = parts.next() {
+        if parts.peek().is_none() {
+            break;
+        }
+        let Component::Normal(name) = component else {
+            continue;
+        };
+        let lower = name.to_string_lossy().to_lowercase();
+        if names.iter().any(|candidate| *candidate == lower) {
+            return true;
+        }
+    }
+    false
 }
