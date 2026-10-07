@@ -106,12 +106,14 @@ required=(
   usr/share/gnome-shell/extensions/pop-shell@system76.com
   usr/share/gnome-shell/extensions/flourish@orsso.github.io
   usr/share/gnome-shell/extensions/compiz-windows-effect@hermes83.github.com
+  usr/share/gnome-shell/extensions/02-zero-portal@02os
+  usr/lib/tmpfiles.d/02os-zero-portal.conf
   usr/share/icons/02-OS
   usr/share/icons/hicolor/scalable/apps/02os-logo.svg
   usr/share/pixmaps/02os-logo.svg
   etc/os-release
   usr/share/backgrounds/02os
-  usr/share/plymouth/themes/02-turn-ripple
+  usr/share/plymouth/themes/02-zero-portal
   etc/plymouth/plymouthd.conf
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.dash-to-dock.gschema.xml
   usr/share/glib-2.0/schemas/org.gnome.shell.extensions.pop-shell.gschema.xml
@@ -152,10 +154,14 @@ copy_entry() {
   else
     mkdir -p -- "$(dirname -- "${dest}")"
     if [[ "${rel}" == "etc/os-release" ]]; then
-      # Arch ships this as a symlink to its package-owned vendor identity.
-      # Own /etc/os-release without following that link into /usr/lib.
+      # The base system ships /etc/os-release as a symlink to its vendor file.
+      # Replace both paths so neither one still names another operating system.
+      local vendor="${target_canon}/usr/lib/os-release"
       [[ ! -d "${dest}" ]] || { echo "ERROR: ${dest} is a directory" >&2; return 1; }
+      [[ ! -d "${vendor}" ]] || { echo "ERROR: ${vendor} is a directory" >&2; return 1; }
+      mkdir -p -- "$(dirname -- "${vendor}")"
       cp -a --remove-destination -- "${src}" "${dest}"
+      cp -a --remove-destination -- "${src}" "${vendor}"
     else
       cp -a -- "${src}" "${dest}"
     fi
@@ -167,7 +173,7 @@ require_entry() {
   local src="${source_canon}/${rel}"
   if [[ ! -e "${src}" && ! -L "${src}" ]]; then
     echo "ERROR: required 02_OS file is missing from the live system: ${rel}" >&2
-    echo "Refusing to leave a stock Arch system without the 02 desktop, agent, daemon, and branding." >&2
+    echo "Refusing to leave an unprovisioned target without the 02 desktop, agent, daemon, and branding." >&2
     exit 1
   fi
 }

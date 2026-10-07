@@ -288,8 +288,146 @@ class OSProfileTests(unittest.TestCase):
         )
         self.assertEqual(installation.packages, ["plymouth"])
         self.assertEqual(installation._kernel_params, ["root=UUID=installed-root", "quiet", "splash"])
-        self.assertEqual(installation.chroot_calls, ["plymouth-set-default-theme 02-turn-ripple"] * 2)
+        self.assertEqual(installation.chroot_calls, ["plymouth-set-default-theme 02-zero-portal"] * 2)
         self.assertEqual(installation.initramfs_calls, [["-P"], ["-P"]])
+
+    def test_product_name_is_02os(self):
+        identity = (OVERLAY / "etc/os-release").read_text()
+        self.assertIn('NAME="02_OS"\n', identity)
+        self.assertIn('PRETTY_NAME="02_OS"\n', identity)
+        self.assertNotIn("Arch Linux", identity)
+        self.assertNotIn("Arch Linux", (OVERLAY / "etc/motd").read_text())
+        readme_lead = (ROOT / "README.md").read_text().splitlines()[2]
+        self.assertIn("operating system", readme_lead)
+        self.assertNotIn("Arch Linux", readme_lead)
+        self.assertNotIn("Arch Linux", (ROOT / "scripts/icon-generator/generate_html_gallery.py").read_text())
+
+    def test_customize_installs_identity_on_both_os_release_paths(self):
+        script = (OVERLAY / "root/customize_airootfs.sh").read_text().splitlines()
+        start = script.index("install_02os_identity() {")
+        function = []
+        for line in script[start:]:
+            function.append(line)
+            if line == "}":
+                break
+        self.assertEqual(function[-1], "}")
+        identity = (OVERLAY / "etc/os-release").read_text()
+
+        def run(root):
+            command = "set -euo pipefail\n" + "\n".join(function) + f"\ninstall_02os_identity {root}\n"
+            return subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=30)
+
+        with tempfile.TemporaryDirectory(prefix="02os-id-") as tmp:
+            root = Path(tmp) / "replaced"
+            (root / "etc").mkdir(parents=True)
+            (root / "usr/lib").mkdir(parents=True)
+            (root / "etc/os-release").write_text(identity)
+            (root / "usr/lib/os-release").write_text('NAME="Arch Linux"\nID=arch\n')
+            result = run(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for rel in ("etc/os-release", "usr/lib/os-release"):
+                path = root / rel
+                self.assertFalse(path.is_symlink(), rel)
+                self.assertEqual(path.read_text(), identity, rel)
+
+            linked = Path(tmp) / "followed"
+            (linked / "usr/lib").mkdir(parents=True)
+            (linked / "etc").mkdir()
+            (linked / "usr/lib/os-release").write_text(identity)
+            (linked / "etc/os-release").symlink_to("../usr/lib/os-release")
+            result = run(linked)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for rel in ("etc/os-release", "usr/lib/os-release"):
+                path = linked / rel
+                self.assertFalse(path.is_symlink(), rel)
+                self.assertEqual(path.read_text(), identity, rel)
+
+            untouched = Path(tmp) / "vendor"
+            (untouched / "usr/lib").mkdir(parents=True)
+            (untouched / "etc").mkdir()
+            vendor = untouched / "usr/lib/os-release"
+            vendor.write_text('NAME="Arch Linux"\nID=arch\n')
+            (untouched / "etc/os-release").symlink_to("../usr/lib/os-release")
+            result = run(untouched)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(vendor.read_text(), 'NAME="Arch Linux"\nID=arch\n')
+            self.assertTrue((untouched / "etc/os-release").is_symlink())
+
+    def test_plugin_renames_arch_boot_titles(self):
+        plugin_path = OVERLAY / "usr/local/share/02os/archinstall_plugin.py"
+        namespace = {}
+        exec(compile(plugin_path.read_text(), str(plugin_path), "exec"), namespace)
+        plugin = namespace["Plugin"]()
+        with tempfile.TemporaryDirectory(prefix="02os-boot-title-") as tmp:
+            target = Path(tmp)
+            entry = target / "boot/loader/entries/linux.conf"
+            entry.parent.mkdir(parents=True)
+            entry.write_text(
+                "# Created by: archinstall\n"
+                "title\tArch Linux (linux)\n"
+                "linux\t/vmlinuz-linux\n"
+                "initrd\t/initramfs-linux.img\n"
+                "options root=PARTUUID=abc quiet splash\n"
+            )
+            grub = target / "boot/grub/grub.cfg"
+            grub.parent.mkdir(parents=True)
+            grub.write_text(
+                "menuentry 'Arch Linux' --class arch --class gnu-linux {\n"
+                "    linux /vmlinuz-linux root=UUID=keep quiet\n"
+                "}\n"
+                "submenu 'Advanced options for Arch Linux' {\n"
+                "    menuentry 'Arch Linux, with Linux linux' {\n"
+                "        linux /vmlinuz-linux root=UUID=keep\n"
+                "    }\n"
+                "}\n"
+            )
+            limine = target / "boot/limine/limine.conf"
+            limine.parent.mkdir(parents=True)
+            limine.write_text(
+                "timeout: 5\n"
+                "\n"
+                "/Arch Linux (linux)\n"
+                "    protocol: linux\n"
+                "    path: boot():/vmlinuz-linux\n"
+                "    cmdline: root=PARTUUID=abc quiet splash\n"
+            )
+            refind = target / "boot/refind_linux.conf"
+            refind.write_text(
+                '"Arch Linux (linux)" "root=PARTUUID=abc quiet splash initrd=\\initramfs-linux.img"\n'
+            )
+            efi = target / "efi/loader/entries/linux.conf"
+            efi.parent.mkdir(parents=True)
+            efi.write_text(entry.read_text())
+
+            class Installation:
+                pass
+
+            installation = Installation()
+            installation.target = str(target)
+            plugin._rename_os_titles(installation)
+
+            entry_text = entry.read_text()
+            self.assertIn("title\t02_OS (linux)\n", entry_text)
+            self.assertIn("# Created by: archinstall\n", entry_text)
+            self.assertIn("linux\t/vmlinuz-linux\n", entry_text)
+            self.assertIn("options root=PARTUUID=abc quiet splash\n", entry_text)
+            self.assertNotIn("Arch Linux", entry_text)
+            self.assertEqual(efi.read_text(), entry_text)
+            grub_text = grub.read_text()
+            self.assertIn("menuentry '02_OS' --class arch --class gnu-linux {\n", grub_text)
+            self.assertIn("submenu 'Advanced options for 02_OS' {\n", grub_text)
+            self.assertIn("menuentry '02_OS, with Linux linux' {\n", grub_text)
+            self.assertIn("linux /vmlinuz-linux root=UUID=keep quiet\n", grub_text)
+            self.assertNotIn("Arch Linux", grub_text)
+            limine_text = limine.read_text()
+            self.assertIn("/02_OS (linux)\n", limine_text)
+            self.assertIn("path: boot():/vmlinuz-linux\n", limine_text)
+            self.assertIn("cmdline: root=PARTUUID=abc quiet splash\n", limine_text)
+            self.assertNotIn("Arch Linux", limine_text)
+            self.assertEqual(
+                refind.read_text(),
+                '"02_OS (linux)" "root=PARTUUID=abc quiet splash initrd=\\initramfs-linux.img"\n',
+            )
 
     def test_agentd_user_unit_is_not_ignored(self):
         unit = OVERLAY / "usr/lib/systemd/user/02-agentd.service"
@@ -331,13 +469,18 @@ class OSProfileTests(unittest.TestCase):
                 ext = target / "usr/share/gnome-shell/extensions" / uuid
                 self.assertEqual((ext / "extension.js").read_text(), "ext")
                 self.assertTrue((ext / "schemas/gschemas.compiled").is_file())
+            self.assertEqual((target / "usr/share/gnome-shell/extensions/02-zero-portal@02os/extension.js").read_text(), "portal")
+            self.assertEqual((target / "usr/lib/tmpfiles.d/02os-zero-portal.conf").read_bytes(), (OVERLAY / "usr/lib/tmpfiles.d/02os-zero-portal.conf").read_bytes())
             self.assertEqual((target / "usr/share/applications/02os-install.desktop").read_text(), "desktop")
             self.assertEqual((target / "usr/lib/02-agent/SOURCE_REVISION").read_text(), "rev\n")
             self.assertEqual((target / "etc/dconf/db/local.d/00-02os").read_text(), "dconf")
             self.assertEqual((target / "etc/dconf/profile/user").read_text(), "user-db:user\nsystem-db:local\n")
+            identity = (OVERLAY / "etc/os-release").read_text()
+            self.assertNotIn("Arch Linux", identity)
             self.assertFalse((target / "etc/os-release").is_symlink())
-            self.assertEqual((target / "etc/os-release").read_text(), (OVERLAY / "etc/os-release").read_text())
-            self.assertEqual(vendor_identity.read_text(), 'NAME="Arch Linux"\nID=arch\n')
+            self.assertFalse(vendor_identity.is_symlink())
+            self.assertEqual((target / "etc/os-release").read_text(), identity)
+            self.assertEqual(vendor_identity.read_text(), identity)
             for rel in (
                 "etc/dconf/profile/gdm",
                 "etc/dconf/db/gdm.d/00-02os-branding",
@@ -347,8 +490,8 @@ class OSProfileTests(unittest.TestCase):
                 self.assertEqual((target / rel).read_bytes(), (OVERLAY / rel).read_bytes(), rel)
             self.assertEqual((target / "etc/dconf/db/gdm").read_bytes(), b"gdm-db")
             self.assertEqual((target / "usr/share/backgrounds/02os/desktop.jpg").read_text(), "jpg")
-            self.assertEqual((target / "usr/share/plymouth/themes/02-turn-ripple/02-turn-ripple.plymouth").read_text(), "theme")
-            self.assertEqual((target / "etc/plymouth/plymouthd.conf").read_text(), "[Daemon]\nTheme=02-turn-ripple\n")
+            self.assertEqual((target / "usr/share/plymouth/themes/02-zero-portal/02-zero-portal.plymouth").read_text(), "theme")
+            self.assertEqual((target / "etc/plymouth/plymouthd.conf").read_text(), "[Daemon]\nTheme=02-zero-portal\n")
             self.assertFalse((target / "etc/mkinitcpio.conf.d/archiso.conf").exists())
             schema_dir = target / "usr/share/glib-2.0/schemas"
             for schema_id in EXTENSIONS.values():
@@ -476,6 +619,12 @@ class OSProfileTests(unittest.TestCase):
             (ext_dir / "schemas").mkdir(parents=True)
             (ext_dir / "extension.js").write_text("ext")
             (ext_dir / "schemas" / f"{schema_id}.gschema.xml").write_text(self._schema(schema_id))
+        portal = source / "usr/share/gnome-shell/extensions/02-zero-portal@02os"
+        portal.mkdir(parents=True)
+        (portal / "extension.js").write_text("portal")
+        tmpfiles = source / "usr/lib/tmpfiles.d/02os-zero-portal.conf"
+        tmpfiles.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(OVERLAY / "usr/lib/tmpfiles.d/02os-zero-portal.conf", tmpfiles)
         apps = source / "usr/share/icons/02-OS/scalable/apps"
         apps.mkdir(parents=True)
         (source / "usr/share/icons/02-OS/index.theme").write_text("[Icon Theme]\nName=02-OS\nDirectories=scalable/apps\n")
@@ -484,12 +633,12 @@ class OSProfileTests(unittest.TestCase):
         wallpaper = source / "usr/share/backgrounds/02os/desktop.jpg"
         wallpaper.parent.mkdir(parents=True)
         wallpaper.write_text("jpg")
-        theme = source / "usr/share/plymouth/themes/02-turn-ripple/02-turn-ripple.plymouth"
+        theme = source / "usr/share/plymouth/themes/02-zero-portal/02-zero-portal.plymouth"
         theme.parent.mkdir(parents=True)
         theme.write_text("theme")
         plymouth_config = source / "etc/plymouth/plymouthd.conf"
         plymouth_config.parent.mkdir(parents=True)
-        plymouth_config.write_text("[Daemon]\nTheme=02-turn-ripple\n")
+        plymouth_config.write_text("[Daemon]\nTheme=02-zero-portal\n")
         schema_dir = source / "usr/share/glib-2.0/schemas"
         schema_dir.mkdir(parents=True)
         (schema_dir / "org.example.gschema.xml").write_text("<schemalist/>")

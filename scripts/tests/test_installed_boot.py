@@ -67,7 +67,7 @@ class InstalledBootTests(unittest.TestCase):
         target.add_additional_packages.assert_called_once_with(["plymouth"])
         self.plugin.on_genfstab(target)
         self.assertEqual(events[-3:], ["copy-theme", "select-theme", "regenerate-image"])
-        self.assertEqual(target.arch_chroot.call_args.args, ("plymouth-set-default-theme 02-turn-ripple",))
+        self.assertEqual(target.arch_chroot.call_args.args, ("plymouth-set-default-theme 02-zero-portal",))
 
     def test_repositions_existing_plymouth_before_encryption(self):
         target = self.installation(["base", "udev", "kms", "encrypt", "plymouth", "filesystems"])

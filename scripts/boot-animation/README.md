@@ -1,49 +1,43 @@
-# Native boot animation assets
+# Zero Portal boot transition
 
-`02-logo.svg` is the approved vector master. `generate_assets.py` renders its
-34 perspective turn frames, one high-resolution static logo, and one ripple.
-The committed transparent PNGs total less than 1 MB. Rebuilding the ISO does
-not require Python image packages.
+`02-logo.svg` is the approved vector master. The old turn-and-ripple theme and
+its projected PNG frames have been removed. `generate_assets.py` now renders
+one high-resolution transparent logo for the native `02-zero-portal` theme.
+Pillow and pycairo are needed only to regenerate that asset, not to build an ISO.
 
-To edit the artwork, install Python's Pillow and pycairo and run:
+Plymouth fades the logo in over 0.25 seconds of real elapsed boot time, then
+holds it while the system starts. Refresh ticks do not advance the timeline.
+Real boot messages, disk-password prompts and questions retain their native
+callbacks; shutdown/reboot never play the intro.
+
+The `02-zero-portal@02os` GNOME Shell extension completes the transition in GDM:
+the 2 slips behind the 0, and the 0 keeps its oval and expands from where it
+sits to reveal the **live login screen** through its center. A transparent hole
+in a decorative overlay reveals GNOME's own actors; no login screenshot or
+imitation password field is used. The monotonic easing has no bounce or overshoot.
+
+This extension runs only in the greeter session. An atomic marker under
+`/run/02os-zero-portal`, created by the owned tmpfiles configuration, permits
+one reveal per system boot even if GDM replaces its ephemeral account. The
+mask is nonreactive and exits immediately on interaction, errors, reduced
+motion, monitor changes, session changes or a bounded timeout. Authentication
+and system controls remain owned by GNOME.
+
+GDM's dconf profile enables only this greeter extension. Ordinary desktop
+extensions and their user defaults remain separate. The provisioner copies
+both boot stages, the greeter settings and the tmpfiles configuration into
+installed systems. A new ISO must be built to include these changes.
 
 ```sh
 python3 scripts/boot-animation/generate_assets.py
 ```
 
-The native theme uses `SetBootProgressFunction(duration, progress)` for elapsed
-time. Refresh calls do not advance the 2.5-second intro. It keeps only the
-current projected image, settles to the static logo on a long boot or an input
-prompt, and skips the animation in shutdown/reboot modes. Real messages and
-password/question prompts are displayed through Plymouth callbacks. GDM owns
-the final display handoff; the theme does not delay it or imitate a lock screen.
+`check_native.c` exercises the actual Plymouth script plugin, including parse,
+elapsed fade, repeated refresh, long-boot hold, prompts/messages, resizing,
+shutdown and quit. Compile it against the matching installed Plymouth headers
+and libraries. This verifies the native logo stage; the circular live reveal
+requires a GNOME 50 VM check, including boot, interruption and greeter re-entry.
 
-`check_native.c` exercises the actual installed Plymouth script plugin without
-starting a daemon, acquiring a VT, or modifying host boot settings. It verifies
-elapsed timing under repeated refreshes, delayed boot, prompt/message callbacks,
-resize, shutdown, and quit. It writes sample PNGs to `/tmp` using Plymouth's
-native pixel-buffer composition.
-
-Compile it against the matching upstream Plymouth source headers and your
-distribution's installed `script.so` and libply libraries. For the verified
-Ubuntu Plymouth 24.004.60 installation, with the official source extracted to
-`/tmp/02os-plymouth-source`:
-
-```sh
-cc -Wall -Wextra -Werror -o /tmp/02os-native-plymouth-check \
-  scripts/boot-animation/check_native.c \
-  -I/tmp/02os-plymouth-source/src/plugins/splash/script \
-  -I/tmp/02os-plymouth-source/src/libply \
-  -I/tmp/02os-plymouth-source/src/libply-splash-core \
-  -I/tmp/02os-plymouth-source/src/libply-splash-graphics \
-  /usr/lib/x86_64-linux-gnu/plymouth/script.so \
-  -l:libply.so.5 -l:libply-splash-core.so.5 -l:libply-splash-graphics.so.5 \
-  $(pkg-config --cflags --libs cairo) -lm
-/tmp/02os-native-plymouth-check "$PWD/profile/airootfs/usr/share/plymouth/themes/02-turn-ripple" 0
-/tmp/02os-native-plymouth-check "$PWD/profile/airootfs/usr/share/plymouth/themes/02-turn-ripple" 1
-```
-
-This validates native script behavior and rendering. A new ISO must still be
-booted in BIOS and UEFI VMs to validate initramfs inclusion, GPU setup, and GDM
-takeover. See the [official Plymouth source](https://gitlab.freedesktop.org/plymouth/plymouth)
-and [ArchWiki integration instructions](https://wiki.archlinux.org/title/Plymouth).
+The screen-design PNGs are proposals only. Changing desktop wallpaper affects
+the user's actual lock screen; a richer GDM background requires separate
+GNOME greeter customization.

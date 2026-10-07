@@ -37,4 +37,11 @@ file_permissions=(
   ["/usr/bin/02agent"]="0:0:755"
   ["/usr/bin/02-agentd"]="0:0:755"
   ["/usr/lib/systemd/user/02-agentd.service"]="0:0:644"
+  ["/usr/lib/tmpfiles.d/02os-zero-portal.conf"]="0:0:644"
+  ["/usr/share/gnome-shell/extensions/02-zero-portal@02os"]="0:0:755"
+  ["/usr/share/gnome-shell/extensions/02-zero-portal@02os/extension.js"]="0:0:644"
+  ["/usr/share/gnome-shell/extensions/02-zero-portal@02os/motion.js"]="0:0:644"
+  ["/usr/share/gnome-shell/extensions/02-zero-portal@02os/metadata.json"]="0:0:644"
+  ["/usr/share/gnome-shell/extensions/02-zero-portal@02os/stylesheet.css"]="0:0:644"
+  ["/usr/share/backgrounds/02os/portal-halo.png"]="0:0:644"
 )

@@ -2,10 +2,12 @@
 # on_install(installation) at the end of Installer.minimal_installation,
 # before bootloader generation and desktop profile installation. Set kernel
 # flags at that point so every generated bootloader/UKI retains them.
-# on_genfstab runs after the desktop profile; select our theme again in case
-# the installer selected another Plymouth theme while adding its bootloader.
+# on_genfstab runs after the desktop profile and after add_bootloader.
+# Select our theme again in case the installer selected another Plymouth
+# theme, then rename boot-menu titles that still name another OS.
 __archinstall__version__ = 4.5
-PLYMOUTH_THEME = "02-turn-ripple"
+PLYMOUTH_THEME = "02-zero-portal"
+OS_TITLE = "02_OS"
 
 
 class Plugin:
@@ -18,6 +20,7 @@ class Plugin:
     def on_genfstab(self, installation):
         self._provision(installation)
         self._activate_theme(installation)
+        self._rename_os_titles(installation)
 
     def _prepare_boot(self, installation):
         # archinstall's own Plymouth integration uses these installer-owned
@@ -49,8 +52,45 @@ class Plugin:
         if not installation.mkinitcpio(["-P"]):
             raise RuntimeError("Could not generate the installed Plymouth initramfs")
 
+    def _rename_os_titles(self, installation):
+        from pathlib import Path
+
+        root = Path(str(installation.target))
+        seen = set()
+        for base in (root / "boot", root / "efi"):
+            if not base.is_dir():
+                continue
+            entries = base / "loader" / "entries"
+            candidates = []
+            if entries.is_dir():
+                candidates.extend(entries.glob("*.conf"))
+            candidates.extend(base.rglob("limine.conf"))
+            candidates.append(base / "grub" / "grub.cfg")
+            candidates.append(base / "refind_linux.conf")
+            for path in candidates:
+                if path in seen or not path.is_file() or path.is_symlink():
+                    continue
+                seen.add(path)
+                original = path.read_text()
+                updated = retitle_boot_text(original)
+                if updated != original:
+                    path.write_text(updated)
+
     def _provision(self, installation):
         import subprocess
 
         target = str(installation.target)
         subprocess.check_call(["/usr/local/bin/02os-provision", target])
+
+
+def retitle_boot_text(text):
+    """Replace an Arch Linux product title. Leave paths, options, and comments."""
+    lines = []
+    for line in text.splitlines(keepends=True):
+        body = line.lstrip(" \t")
+        title = body.startswith("title ") or body.startswith("title\t")
+        menu = body.startswith("menuentry ") or body.startswith("submenu ")
+        if (title or menu or body.startswith("/Arch Linux") or body.startswith('"Arch Linux')) and "Arch Linux" in line:
+            line = line.replace("Arch Linux", OS_TITLE, 1)
+        lines.append(line)
+    return "".join(lines)

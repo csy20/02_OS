@@ -3,7 +3,47 @@ set -euo pipefail
 
 # Build-time customization for 02_OS ISO.
 # A manual mkarchiso stops here unless ./build.sh staged a matching runtime.
+
+# pacstrap leaves /etc/os-release as a symlink to the filesystem package's
+# vendor file. Copying the profile over that symlink can update only one path.
+# Install the profile identity as a regular file at both paths.
+install_02os_identity() {
+  local root="${1%/}"
+  local identity etc_path vendor_path path
+  identity="$(mktemp)"
+  etc_path="${root}/etc/os-release"
+  vendor_path="${root}/usr/lib/os-release"
+  if [[ ! -f "${etc_path}" ]]; then
+    echo "ERROR: ${etc_path} is missing" >&2
+    rm -f "${identity}"
+    return 1
+  fi
+  cat -- "${etc_path}" > "${identity}"
+  if ! grep -qx 'NAME="02_OS"' "${identity}" \
+    || ! grep -qx 'PRETTY_NAME="02_OS"' "${identity}" \
+    || grep -q 'Arch Linux' "${identity}"; then
+    echo "ERROR: ${etc_path} is not the 02_OS identity" >&2
+    rm -f "${identity}"
+    return 1
+  fi
+  for path in "${etc_path}" "${vendor_path}"; do
+    if [[ -d "${path}" ]]; then
+      echo "ERROR: ${path} is a directory" >&2
+      rm -f "${identity}"
+      return 1
+    fi
+  done
+  mkdir -p -- "$(dirname -- "${etc_path}")" "$(dirname -- "${vendor_path}")"
+  rm -f -- "${etc_path}" "${vendor_path}"
+  install -m 644 "${identity}" "${vendor_path}"
+  install -m 644 "${identity}" "${etc_path}"
+  rm -f "${identity}"
+}
+
 /usr/local/bin/02os-check-runtime
+
+echo "==> Installing the 02_OS identity..."
+install_02os_identity /
 
 echo "==> Configuring greetd to register a Wayland login session..."
 /usr/local/bin/02os-configure-greetd

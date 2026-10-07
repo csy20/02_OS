@@ -1,8 +1,0 @@
-[Plymouth Theme]
-Name=02 Turn and Ripple
-Description=Boot-only cyan 02 turn and ripple, followed by a static logo
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/02-turn-ripple
-ScriptFile=/usr/share/plymouth/themes/02-turn-ripple/02-turn-ripple.script

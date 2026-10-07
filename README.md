@@ -1,6 +1,6 @@
 # 02_OS
 
-`02_OS` is an **agent-native developer operating system** built on Arch Linux. It pairs a refined **GNOME** desktop environment with an OS-native repository intelligence service (**02 Agent Runtime**) designed specifically for autonomous coding agents (OpenAI Codex, Claude Code, OpenCode, Gemini CLI, Cursor).
+`02_OS` is an **agent-native developer operating system**. It pairs a refined **GNOME** desktop environment with an OS-native repository intelligence service (**02 Agent Runtime**) designed specifically for autonomous coding agents (OpenAI Codex, Claude Code, OpenCode, Gemini CLI, Cursor).
 
 Built with `archiso` in a privileged Docker container. This tree builds a public alpha live image. It is an experiment for developers, not a production operating system.
 

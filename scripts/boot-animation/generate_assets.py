@@ -7,20 +7,18 @@ uses the committed PNGs and needs no render-time Python dependencies.
 from __future__ import annotations
 
 import io
-import math
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import cairo
-from PIL import Image, ImageDraw
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / "profile/airootfs/usr/share/plymouth/themes/02-turn-ripple"
+OUTPUT = ROOT / "profile/airootfs/usr/share/plymouth/themes/02-zero-portal"
 WIDTH = 1280
 CANVAS = (512, 448)
 CYAN = (0, 186, 243)
-TURN_FRAMES = 34
 
 
 def path_to_cairo(ctx, path):
@@ -87,36 +85,12 @@ def logo_image(master, width=WIDTH, canvas=CANVAS, supersample=3):
     return Image.open(buffer).convert("RGBA").resize(canvas, Image.Resampling.LANCZOS)
 
 
-def project(asset, time):
-    turn = min(1, max(0, (time - 0.08) / 1.02))
-    turn = 1 - (1 - turn) ** 3
-    angle = math.radians(88 * (1 - turn))
-    scale = 0.94 + 0.06 * turn
-    cx, cy = asset.width / 2, asset.height / 2
-    a = math.cos(angle) * scale
-    b = math.sin(angle) * scale / (600 * WIDTH / 736)
-    d = a + b * cx
-    coefficients = ((1 - cx * b) / d, 0, (cx * d - cx) / d,
-                    -cy * b / d, (a / scale) / d, (cy * d - cy * a / scale) / d,
-                    -b / d, 0)
-    return asset.transform(CANVAS, Image.Transform.PERSPECTIVE, coefficients,
-                           Image.Resampling.BICUBIC, fillcolor=(0, 0, 0, 0))
-
-
 def main():
     master = ET.parse(Path(__file__).with_name("02-logo.svg")).getroot()
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    logo = logo_image(master)
-    # The static master is larger for a crisp long-boot holding state and HiDPI.
+    # Plymouth holds the logo; GNOME's boot-only overlay performs the actual
+    # portal reveal over the live login screen in the same compositor.
     logo_image(master, width=2560, canvas=(1024, 896)).save(OUTPUT / "logo.png", optimize=True)
-    for index in range(TURN_FRAMES):
-        project(logo, index / 30).save(OUTPUT / f"turn-{index}.png", optimize=True)
-    supersample = 3
-    ring = Image.new("RGBA", (512 * supersample, 512 * supersample), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(ring)
-    draw.ellipse((6 * supersample, 6 * supersample, 506 * supersample, 506 * supersample),
-                 outline=CYAN + (255,), width=2 * supersample)
-    ring.resize((512, 512), Image.Resampling.LANCZOS).save(OUTPUT / "ripple.png", optimize=True)
     assets = list(OUTPUT.glob("*.png"))
     print(f"Generated {len(assets)} PNG assets, {sum(path.stat().st_size for path in assets):,} bytes")
 
