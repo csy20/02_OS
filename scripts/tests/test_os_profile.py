@@ -310,6 +310,11 @@ class OSProfileTests(unittest.TestCase):
             target = Path(tmp) / "target"
             self._write_provision_fixture(source, include_runtime=True)
             forbidden = self._write_forbidden_live_paths(source)
+            vendor_identity = target / "usr/lib/os-release"
+            vendor_identity.parent.mkdir(parents=True)
+            vendor_identity.write_text('NAME="Arch Linux"\nID=arch\n')
+            (target / "etc").mkdir()
+            (target / "etc/os-release").symlink_to("../usr/lib/os-release")
             result = subprocess.run(
                 [str(provision), "--source", str(source), "--target", str(target)],
                 capture_output=True, text=True, timeout=30,
@@ -330,6 +335,17 @@ class OSProfileTests(unittest.TestCase):
             self.assertEqual((target / "usr/lib/02-agent/SOURCE_REVISION").read_text(), "rev\n")
             self.assertEqual((target / "etc/dconf/db/local.d/00-02os").read_text(), "dconf")
             self.assertEqual((target / "etc/dconf/profile/user").read_text(), "user-db:user\nsystem-db:local\n")
+            self.assertFalse((target / "etc/os-release").is_symlink())
+            self.assertEqual((target / "etc/os-release").read_text(), (OVERLAY / "etc/os-release").read_text())
+            self.assertEqual(vendor_identity.read_text(), 'NAME="Arch Linux"\nID=arch\n')
+            for rel in (
+                "etc/dconf/profile/gdm",
+                "etc/dconf/db/gdm.d/00-02os-branding",
+                "usr/share/pixmaps/02os-logo.svg",
+                "usr/share/icons/hicolor/scalable/apps/02os-logo.svg",
+            ):
+                self.assertEqual((target / rel).read_bytes(), (OVERLAY / rel).read_bytes(), rel)
+            self.assertEqual((target / "etc/dconf/db/gdm").read_bytes(), b"gdm-db")
             self.assertEqual((target / "usr/share/backgrounds/02os/desktop.jpg").read_text(), "jpg")
             self.assertEqual((target / "usr/share/plymouth/themes/02-turn-ripple/02-turn-ripple.plymouth").read_text(), "theme")
             self.assertEqual((target / "etc/plymouth/plymouthd.conf").read_text(), "[Daemon]\nTheme=02-turn-ripple\n")
@@ -485,6 +501,17 @@ class OSProfileTests(unittest.TestCase):
         (source / "etc/dconf/profile").mkdir(parents=True)
         (source / "etc/dconf/profile/user").write_text("user-db:user\nsystem-db:local\n")
         (source / "etc/dconf/db/local").write_bytes(b"db")
+        for rel in (
+            "etc/os-release",
+            "etc/dconf/profile/gdm",
+            "etc/dconf/db/gdm.d/00-02os-branding",
+            "usr/share/pixmaps/02os-logo.svg",
+            "usr/share/icons/hicolor/scalable/apps/02os-logo.svg",
+        ):
+            destination = source / rel
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(OVERLAY / rel, destination)
+        (source / "etc/dconf/db/gdm").write_bytes(b"gdm-db")
         provenance = source / "usr/lib/02-agent/SOURCE_REVISION"
         provenance.parent.mkdir(parents=True)
         provenance.write_text("rev\n")

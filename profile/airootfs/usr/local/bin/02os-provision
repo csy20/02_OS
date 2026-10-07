@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copy the 02_OS allowlist from the live overlay into an installed system.
-# Live-only paths (sudoers, greeter configuration, sshd, the live user) are not on the list.
+# Shared branding is included; live-only login setup, sudoers, sshd and users are not.
 set -euo pipefail
 
 usage() {
@@ -107,6 +107,9 @@ required=(
   usr/share/gnome-shell/extensions/flourish@orsso.github.io
   usr/share/gnome-shell/extensions/compiz-windows-effect@hermes83.github.com
   usr/share/icons/02-OS
+  usr/share/icons/hicolor/scalable/apps/02os-logo.svg
+  usr/share/pixmaps/02os-logo.svg
+  etc/os-release
   usr/share/backgrounds/02os
   usr/share/plymouth/themes/02-turn-ripple
   etc/plymouth/plymouthd.conf
@@ -117,6 +120,9 @@ required=(
   etc/dconf/db/local.d/00-02os
   etc/dconf/profile/user
   etc/dconf/db/local
+  etc/dconf/profile/gdm
+  etc/dconf/db/gdm.d/00-02os-branding
+  etc/dconf/db/gdm
 )
 
 optional=(
@@ -145,7 +151,14 @@ copy_entry() {
     cp -a -- "${src}/." "${dest}/"
   else
     mkdir -p -- "$(dirname -- "${dest}")"
-    cp -a -- "${src}" "${dest}"
+    if [[ "${rel}" == "etc/os-release" ]]; then
+      # Arch ships this as a symlink to its package-owned vendor identity.
+      # Own /etc/os-release without following that link into /usr/lib.
+      [[ ! -d "${dest}" ]] || { echo "ERROR: ${dest} is a directory" >&2; return 1; }
+      cp -a --remove-destination -- "${src}" "${dest}"
+    else
+      cp -a -- "${src}" "${dest}"
+    fi
   fi
 }
 
@@ -185,8 +198,10 @@ while IFS= read -r -d '' extension_schemas; do
 done < <(find "${target_canon}/usr/share/gnome-shell/extensions" -type d -name schemas -print0)
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  icon_theme="${target_canon}/usr/share/icons/02-OS"
-  if [[ -d "${icon_theme}" ]]; then
-    gtk-update-icon-cache -q -t -f "${icon_theme}" || true
-  fi
+  for theme_name in 02-OS hicolor; do
+    icon_theme="${target_canon}/usr/share/icons/${theme_name}"
+    if [[ -f "${icon_theme}/index.theme" ]]; then
+      gtk-update-icon-cache -q -t -f "${icon_theme}" || true
+    fi
+  done
 fi
