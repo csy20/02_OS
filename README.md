@@ -98,6 +98,9 @@ password **`live`**; use the same password to unlock the session or for `sudo`.
 The desktop runs as the unprivileged live account. Earlier live images used
 autologin; new builds require sign-in after the boot animation.
 
+For disposable installed-OS VM tests, use the shared credentials documented in
+[VM testing](docs/VM_TESTING.md).
+
 See [Desktop motion](docs/desktop-motion.md) for settings, package versions and maintenance instructions.
 These effects ship in new builds from this source. The previously tested
 `2026.10.01` ISO predates them; pushing source changes does not update an existing ISO.
