@@ -179,6 +179,9 @@ class _TempHome:
         home.mkdir()
         env = os.environ.copy()
         env["HOME"] = str(home)
+        runtime = root / "run"
+        runtime.mkdir(mode=0o700)
+        env["XDG_RUNTIME_DIR"] = str(runtime)
         for key in ("XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"):
             env.pop(key, None)
         return home, env

@@ -22,8 +22,11 @@ cd ../..
 python3 -m unittest discover -s scripts/tests -v
 ```
 
-Install `desktop-file-utils` and the package providing `glib-compile-schemas`
-before running the profile checks. Set `AGENT_BINARY` to an absolute path to a
+Install `desktop-file-utils` and the packages providing `glib-compile-schemas`
+and `dconf` before running the profile and installer checks. On Ubuntu these
+are `desktop-file-utils`, `libglib2.0-bin` and `dconf-cli`; the installer regression
+uses the real `dconf compile` to verify regenerated desktop defaults.
+Set `AGENT_BINARY` to an absolute path to a
 freshly built `02` executable when using a different Cargo target directory.
 Unix-socket Rust tests need an environment that permits temporary sockets.
 The smoke tests isolate XDG storage, use synthetic data and temporary Git
