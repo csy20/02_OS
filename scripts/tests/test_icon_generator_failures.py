@@ -16,6 +16,9 @@ COMPLETE_ALL = "Theme generation complete for all target paths"
 def copy_generator(root):
     dest = root / "scripts/icon-generator"
     shutil.copytree(GENERATOR, dest)
+    assets = root / "scripts/boot-animation"
+    assets.mkdir()
+    shutil.copy2(ROOT / "scripts/boot-animation/02-logo.svg", assets / "02-logo.svg")
     return dest
 
 

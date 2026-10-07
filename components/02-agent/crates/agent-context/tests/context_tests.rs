@@ -328,13 +328,8 @@ fn context_redacts_secrets_and_obeys_a_tight_budget() {
         })
         .unwrap();
 
-    let empty = ContextCompiler::compile(root, "leaky", 0).unwrap();
-    assert_eq!(empty.budget.returned_tokens, 0);
-    assert!(empty
-        .relevant_files
-        .iter()
-        .all(|file| file.snippet.is_none()));
-    assert!(empty.to_markdown().is_empty());
+    let error = ContextCompiler::compile(root, "leaky", 0).unwrap_err();
+    assert!(error.to_string().contains("Context metadata requires"));
 
     let package = ContextCompiler::compile(root, "leaky", 200).unwrap();
     assert!(package.budget.returned_tokens <= 200);

@@ -91,6 +91,29 @@ impl IndexDatabase {
             .map_err(|e| AgentError::Database(format!("Schema initialization failed: {}", e)))?;
         tx.execute_batch(SCHEMA_V2_SQL)
             .map_err(|e| AgentError::Database(format!("Schema v2 initialization failed: {}", e)))?;
+        // v3 carries exact callers without discarding existing catalogs. Older rows
+        // remain readable and their files are re-extracted at the next sync.
+        let has_source_identity = {
+            let mut stmt = tx
+                .prepare("PRAGMA table_info(symbol_references)")
+                .map_err(|e| {
+                    AgentError::Database(format!("Inspect reference schema failed: {e}"))
+                })?;
+            let columns = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| AgentError::Database(format!("Read reference schema failed: {e}")))?;
+            columns
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| AgentError::Database(format!("Reference column failed: {e}")))?
+                .iter()
+                .any(|name| name == "source_symbol_id")
+        };
+        if !has_source_identity {
+            tx.execute_batch("ALTER TABLE symbol_references ADD COLUMN source_symbol_id TEXT;")
+                .map_err(|e| {
+                    AgentError::Database(format!("Schema v3 initialization failed: {e}"))
+                })?;
+        }
         crate::graph::migrate_unscoped_commit_nodes(&tx)?;
 
         let version: Option<i32> = tx
@@ -503,8 +526,8 @@ impl IndexDatabase {
                     r#"
                     INSERT INTO symbol_references (
                         repo_id, source_file, source_symbol_name, target_name,
-                        target_symbol_id, kind, line_number
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                        target_symbol_id, kind, line_number, source_symbol_id
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                     "#,
                 )
                 .map_err(|e| AgentError::Database(format!("Prepare insert ref failed: {}", e)))?;
@@ -518,7 +541,8 @@ impl IndexDatabase {
                         r.target_name,
                         r.target_symbol_id,
                         r.kind.to_string(),
-                        r.line_number as i64
+                        r.line_number as i64,
+                        r.source_symbol_id
                     ])
                     .map_err(|e| AgentError::Database(format!("Insert reference error: {}", e)))?;
                 ref_count += 1;
@@ -678,7 +702,7 @@ impl IndexDatabase {
             .conn
             .prepare(
                 r#"
-            SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number
+            SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number, source_symbol_id
             FROM symbol_references
             WHERE repo_id = ?1 AND target_name = ?2 AND kind = 'calls'
             ORDER BY source_file, line_number
@@ -692,6 +716,7 @@ impl IndexDatabase {
                 Ok(SymbolReference {
                     source_file: r.get(0)?,
                     source_symbol_name: r.get(1)?,
+                    source_symbol_id: r.get(6)?,
                     target_name: r.get(2)?,
                     target_symbol_id: r.get(3)?,
                     kind: ReferenceKind::from_str_kind(&kind_str),
@@ -710,7 +735,7 @@ impl IndexDatabase {
             .conn
             .prepare(
                 r#"
-            SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number
+            SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number, source_symbol_id
             FROM symbol_references
             WHERE repo_id = ?1 AND source_symbol_name = ?2 AND kind = 'calls'
             ORDER BY line_number
@@ -724,6 +749,7 @@ impl IndexDatabase {
                 Ok(SymbolReference {
                     source_file: r.get(0)?,
                     source_symbol_name: r.get(1)?,
+                    source_symbol_id: r.get(6)?,
                     target_name: r.get(2)?,
                     target_symbol_id: r.get(3)?,
                     kind: ReferenceKind::from_str_kind(&kind_str),
@@ -741,7 +767,7 @@ impl IndexDatabase {
         for def in &defined_in {
             let mut stmt_imp = self.conn.prepare(
                 r#"
-                SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number
+                SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number, source_symbol_id
                 FROM symbol_references
                 WHERE repo_id = ?1 AND source_file = ?2 AND kind = 'imports'
                 ORDER BY line_number
@@ -754,6 +780,7 @@ impl IndexDatabase {
                     Ok(SymbolReference {
                         source_file: r.get(0)?,
                         source_symbol_name: r.get(1)?,
+                        source_symbol_id: r.get(6)?,
                         target_name: r.get(2)?,
                         target_symbol_id: r.get(3)?,
                         kind: ReferenceKind::from_str_kind(&kind_str),
@@ -789,7 +816,7 @@ impl IndexDatabase {
         // (assert, unwrap, String::new) as a test of the symbol.
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT DISTINCT sr.source_file, sr.source_symbol_name, sr.target_name, sr.target_symbol_id, sr.kind, sr.line_number
+            SELECT DISTINCT sr.source_file, sr.source_symbol_name, sr.target_name, sr.target_symbol_id, sr.kind, sr.line_number, sr.source_symbol_id
             FROM symbol_references sr
             JOIN files f ON sr.source_file = f.relative_path AND sr.repo_id = f.repo_id
             WHERE sr.repo_id = ?1
@@ -830,6 +857,7 @@ impl IndexDatabase {
                     Ok(SymbolReference {
                         source_file: r.get(0)?,
                         source_symbol_name: r.get(1)?,
+                        source_symbol_id: r.get(6)?,
                         target_name: r.get(2)?,
                         target_symbol_id: r.get(3)?,
                         kind: ReferenceKind::from_str_kind(&kind_str),
@@ -854,6 +882,22 @@ impl IndexDatabase {
         }
 
         Ok(tests)
+    }
+
+    /// Files with v1/v2 references must be re-extracted even if their contents are unchanged.
+    pub fn files_missing_source_identity(&self, repo_id: &RepoId) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT source_file FROM symbol_references
+             WHERE repo_id = ?1 AND source_symbol_name IS NOT NULL AND source_symbol_id IS NULL",
+            )
+            .map_err(|e| AgentError::Database(format!("Prepare reference upgrade failed: {e}")))?;
+        let rows = stmt
+            .query_map(params![repo_id.as_str()], |row| row.get(0))
+            .map_err(|e| AgentError::Database(format!("Read reference upgrade failed: {e}")))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| AgentError::Database(format!("Reference upgrade row failed: {e}")))
     }
 
     /// Incrementally update modified/added files and delete removed files.
@@ -1007,8 +1051,8 @@ impl IndexDatabase {
                     r#"
                 INSERT INTO symbol_references (
                     repo_id, source_file, source_symbol_name, target_name,
-                    target_symbol_id, kind, line_number
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    target_symbol_id, kind, line_number, source_symbol_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                 "#,
                 )
                 .map_err(|e| AgentError::Database(format!("Prepare insert ref error: {}", e)))?;
@@ -1022,7 +1066,8 @@ impl IndexDatabase {
                         r.target_name,
                         r.target_symbol_id,
                         r.kind.to_string(),
-                        r.line_number as i64
+                        r.line_number as i64,
+                        r.source_symbol_id
                     ])
                     .map_err(|e| AgentError::Database(format!("Insert ref error: {}", e)))?;
             }

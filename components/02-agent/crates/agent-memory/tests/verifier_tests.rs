@@ -140,3 +140,57 @@ fn verifier_marks_a_missing_tsx_symbol_stale() {
     assert_eq!(kept.status, MemoryStatus::Fresh);
     assert_eq!(kept.confidence, 1.0);
 }
+
+#[test]
+fn captured_evidence_baselines_cover_multiple_symbols_and_document_files() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join("auth.rs"),
+        "fn first() {}\nfn second() {}\nfn unrelated() {}\n",
+    )
+    .unwrap();
+    let symbols = vec!["first".to_string(), "second".to_string()];
+    let evidence = MemoryVerifier::capture_evidence(root, "auth.rs", symbols, "abc").unwrap();
+    let mut mem = memory("auth.rs", "first", None);
+    mem.evidence = vec![evidence];
+    let db = IndexDatabase::open_in_memory().unwrap();
+    let repo_id = RepoId::from_path(root);
+    assert_eq!(
+        MemoryVerifier::verify(&mem, root, &repo_id, Some("abc"), &db)
+            .unwrap()
+            .status,
+        MemoryStatus::Fresh
+    );
+    fs::write(
+        root.join("auth.rs"),
+        "// Unrelated preceding text\nfn first() {}\nfn second() {}\nfn unrelated() { other(); }\n",
+    )
+    .unwrap();
+    assert_eq!(
+        MemoryVerifier::verify(&mem, root, &repo_id, Some("abc"), &db)
+            .unwrap()
+            .status,
+        MemoryStatus::Fresh
+    );
+    fs::write(
+        root.join("auth.rs"),
+        "fn first() {}\nfn second() { changed(); }\nfn unrelated() {}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        MemoryVerifier::verify(&mem, root, &repo_id, Some("abc"), &db)
+            .unwrap()
+            .status,
+        MemoryStatus::Degraded
+    );
+    fs::write(root.join("rule.md"), "Requests are accepted.\n").unwrap();
+    mem.evidence = vec![MemoryVerifier::capture_evidence(root, "rule.md", vec![], "abc").unwrap()];
+    fs::write(root.join("rule.md"), "Requests are rejected.\n").unwrap();
+    assert_eq!(
+        MemoryVerifier::verify(&mem, root, &repo_id, Some("def"), &db)
+            .unwrap()
+            .status,
+        MemoryStatus::Degraded
+    );
+}

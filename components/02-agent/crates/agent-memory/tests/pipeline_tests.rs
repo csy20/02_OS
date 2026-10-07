@@ -558,3 +558,78 @@ fn git_history_redacts_synthetic_tokens() {
     assert!(!exported.contains(&token));
     assert!(exported.contains("[REDACTED]"));
 }
+
+#[test]
+fn scoped_callers_keep_their_identity_through_catalog_and_graph_projection() {
+    for (file, code) in [
+        ("methods.rs", "fn only_a() {} fn only_b() {} struct A; struct B; impl A { fn run(&self) { only_a(); } } impl B { fn run(&self) { only_b(); } }"),
+        ("methods.js", "function only_a() {} function only_b() {} class A { run() { only_a(); } } class B { run() { only_b(); } }"),
+        ("methods.ts", "function only_a() {} function only_b() {} class A { run() { only_a(); } } class B { run() { only_b(); } }"),
+        ("methods.cpp", "void only_a() {} void only_b() {} struct A { void run() { only_a(); } void run(int n) { only_b(); } };"),
+        ("nested.py", "def only_a(): pass\ndef only_b(): pass\ndef a():\n    def run():\n        only_a()\ndef b():\n    def run():\n        only_b()\n"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git_repo(root);
+        commit_file(root, file, code);
+        let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+        let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+        let report = index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+        let check = |handle: &RepoHandle| {
+            let refs = handle.db.list_references(handle.info.id.as_str()).unwrap();
+            let calls: Vec<_> = refs.iter().filter(|reference| reference.source_file == file
+                && matches!(reference.target_name.as_str(), "only_a" | "only_b")).collect();
+            assert_eq!(calls.len(), 2, "{file}: {calls:?}");
+            assert!(calls.iter().all(|reference| reference.source_symbol_name.as_deref() == Some("run")));
+            assert_ne!(calls[0].source_symbol_id, calls[1].source_symbol_id, "{file}");
+            let symbols = handle.db.list_symbols(handle.info.id.as_str()).unwrap();
+            let edges = handle.db.list_edges(&report.dataset_id).unwrap();
+            for reference in calls {
+                let source = symbol_node_id(&report.dataset_id, reference.source_symbol_id.as_deref().unwrap());
+                let target = symbols.iter().find(|symbol| symbol.file_path == file
+                    && symbol.name == reference.target_name).unwrap();
+                let destination = symbol_node_id(&report.dataset_id, &target.id);
+                let outgoing: Vec<_> = edges.iter().filter(|edge| edge.kind == EdgeKind::Calls
+                    && edge.src_id == source).collect();
+                assert_eq!(outgoing.len(), 1, "{file}: {outgoing:?}");
+                assert_eq!(outgoing[0].dst_id, destination, "{file}");
+            }
+            let dependencies = handle.db.find_symbol_deps(&handle.info.id, "run").unwrap();
+            assert!(dependencies.callees.iter().all(|reference| reference.source_symbol_id.is_some()));
+        };
+        check(&handle);
+        // Simulate migrated v1/v2 rows with no source identity and an unchanged file hash.
+        let symbols = handle.db.list_symbols(handle.info.id.as_str()).unwrap();
+        let mut references = handle.db.list_references(handle.info.id.as_str()).unwrap();
+        for reference in &mut references { reference.source_symbol_id = None; }
+        handle.db.save_symbols_and_references(&handle.info.id, &symbols, &references).unwrap();
+        assert!(handle.db.files_missing_source_identity(&handle.info.id).unwrap().iter().any(|path| path == file));
+        cognify_pipeline(&mut handle, false, None, &TaskRegistry::new()).unwrap();
+        check(&handle);
+        assert!(handle.db.files_missing_source_identity(&handle.info.id).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn excluded_symbol_nodes_do_not_leave_dangling_caller_edges() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git_repo(root);
+    fs::create_dir_all(root.join(".02agent")).unwrap();
+    fs::write(
+        root.join(".02agent/ontology.toml"),
+        "node_kinds = [\"file\", \"name\", \"chunk\"]\nedge_kinds = [\"calls\", \"owns\"]\n",
+    )
+    .unwrap();
+    let db = IndexDatabase::open(root.join("index.sqlite")).unwrap();
+    let mut handle = RepoHandle::open_with_db(root, db).unwrap();
+    let report = index_pipeline(&mut handle, true, &TaskRegistry::new()).unwrap();
+    let nodes = handle.db.list_nodes(&report.dataset_id).unwrap();
+    assert!(nodes.iter().all(|node| node.kind != "symbol"));
+    let edges = handle.db.list_edges(&report.dataset_id).unwrap();
+    assert!(edges.iter().any(|edge| edge.kind == EdgeKind::Calls));
+    assert!(edges
+        .iter()
+        .all(|edge| nodes.iter().any(|node| node.id == edge.src_id)
+            && nodes.iter().any(|node| node.id == edge.dst_id)));
+}

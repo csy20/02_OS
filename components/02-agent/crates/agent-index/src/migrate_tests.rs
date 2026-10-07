@@ -154,3 +154,41 @@ fn architecture_doc_matches_schema() {
     assert!(doc.contains("relative_path"));
     assert!(doc.contains("graph_nodes"));
 }
+
+#[test]
+fn old_reference_rows_survive_source_identity_migration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("index.sqlite");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(SCHEMA_V1_SQL).unwrap();
+    conn.execute("INSERT INTO schema_version (version) VALUES (2)", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO repositories (repo_id, name, root_path, indexed_at)
+        VALUES ('repo', 'demo', '/tmp/demo', '2020-01-01T00:00:00Z')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO symbol_references (repo_id, source_file, source_symbol_name,
+        target_name, kind, line_number) VALUES ('repo', 'methods.rs', 'run', 'only_a', 'calls', 1)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let db = IndexDatabase::open(&path).unwrap();
+    let references = db.list_references("repo").unwrap();
+    assert_eq!(references.len(), 1);
+    assert_eq!(references[0].target_name, "only_a");
+    assert!(references[0].source_symbol_id.is_none());
+    assert_eq!(
+        db.files_missing_source_identity(&agent_core::RepoId::new("repo"))
+            .unwrap(),
+        vec!["methods.rs"]
+    );
+    drop(db);
+    // Migration is idempotent when the upgraded database is reopened.
+    let db = IndexDatabase::open(&path).unwrap();
+    assert_eq!(db.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(db.list_references("repo").unwrap().len(), 1);
+}

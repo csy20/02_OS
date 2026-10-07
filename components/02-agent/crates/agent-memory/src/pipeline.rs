@@ -83,28 +83,32 @@ impl RepoHandle {
     pub fn open(root: &Path) -> Result<Self> {
         let git = GitRepo::open(root)?;
         let info = git.info()?;
+        let root = info.root_path.clone();
+        let config = RepoConfig::load_or_default(&root);
         let db_path = StoragePaths::repo_db_path(&info.id)?;
         let mut db = IndexDatabase::open(&db_path)?;
         db.note_repo_presence(&info)?;
         Ok(Self {
-            root: root.to_path_buf(),
+            root,
             git,
             info,
             db,
-            config: RepoConfig::load_or_default(root),
+            config,
         })
     }
 
     pub fn open_with_db(root: &Path, mut db: IndexDatabase) -> Result<Self> {
         let git = GitRepo::open(root)?;
         let info = git.info()?;
+        let root = info.root_path.clone();
+        let config = RepoConfig::load_or_default(&root);
         db.note_repo_presence(&info)?;
         Ok(Self {
-            root: root.to_path_buf(),
+            root,
             git,
             info,
             db,
-            config: RepoConfig::load_or_default(root),
+            config,
         })
     }
 
@@ -209,6 +213,11 @@ impl Task for SyncCatalog {
                 .into_iter()
                 .map(|file| (file.relative_path, file.file_hash))
                 .collect();
+            let identity_upgrades: HashSet<String> = ctx
+                .db
+                .files_missing_source_identity(&ctx.info.id)?
+                .into_iter()
+                .collect();
             let mut current = HashSet::new();
             let mut changed = Vec::new();
             for item in &ctx.scanned {
@@ -217,7 +226,7 @@ impl Task for SyncCatalog {
                     Some(hash) => hash != &item.file.file_hash,
                     None => true,
                 };
-                if dirty {
+                if dirty || identity_upgrades.contains(&item.file.relative_path) {
                     changed.push(item.clone());
                 }
             }
@@ -436,7 +445,7 @@ impl Task for ProjectGraph {
             .collect();
         ctx.db.delete_file_nodes_not_in(&ctx.dataset.id, &keep)?;
 
-        let mut by_file_name: HashMap<(String, String), String> = HashMap::new();
+        let mut by_file_name: HashMap<(String, String), Vec<String>> = HashMap::new();
         let mut by_name: HashMap<String, Vec<String>> = HashMap::new();
         for item in &ctx.scanned {
             if !ctx.ontology.allows_node("file") {
@@ -473,7 +482,10 @@ impl Task for ProjectGraph {
                 None,
             )?;
             ctx.nodes_written += 1;
-            by_file_name.insert((symbol.file_path.clone(), symbol.name.clone()), id.clone());
+            by_file_name
+                .entry((symbol.file_path.clone(), symbol.name.clone()))
+                .or_default()
+                .push(id.clone());
             by_name
                 .entry(symbol.name.clone())
                 .or_default()
@@ -490,6 +502,11 @@ impl Task for ProjectGraph {
             write_edge(ctx, &file_id, &id, EdgeKind::Owns)?;
         }
 
+        let by_symbol_id: HashMap<&str, &agent_core::Symbol> = symbols
+            .iter()
+            .filter(|_| ctx.ontology.allows_node("symbol"))
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect();
         for reference in &references {
             let kind = match reference.kind {
                 agent_core::ReferenceKind::Calls => EdgeKind::Calls,
@@ -497,26 +514,41 @@ impl Task for ProjectGraph {
                 agent_core::ReferenceKind::Tests => EdgeKind::Tests,
                 _ => continue,
             };
-            let src = reference
-                .source_symbol_name
+            let caller = reference
+                .source_symbol_id
                 .as_ref()
-                .and_then(|name| {
-                    by_file_name
-                        .get(&(reference.source_file.clone(), name.clone()))
-                        .cloned()
-                })
-                .unwrap_or_else(|| file_node_id(&ctx.dataset.id, &reference.source_file));
-            ctx.db.upsert_node(
-                ctx.info.id.as_str(),
-                &ctx.dataset.id,
-                &src,
-                "symbol",
-                reference
-                    .source_symbol_name
-                    .as_deref()
-                    .unwrap_or(reference.source_file.as_str()),
-                None,
-            )?;
+                .and_then(|id| by_symbol_id.get(id.as_str()).copied())
+                .or_else(|| {
+                    // Older catalogs have no caller ID. Only use a uniquely enclosing
+                    // declaration; never guess the last same-name method in the file.
+                    let name = reference.source_symbol_name.as_deref()?;
+                    let mut enclosing = by_symbol_id.values().copied().filter(|symbol| {
+                        symbol.file_path == reference.source_file
+                            && symbol.name == name
+                            && symbol.start_line <= reference.line_number
+                            && symbol.end_line >= reference.line_number
+                    });
+                    let first = enclosing.next()?;
+                    if enclosing.next().is_none() {
+                        Some(first)
+                    } else {
+                        None
+                    }
+                });
+            let src = if let Some(caller) = caller {
+                symbol_node_id(&ctx.dataset.id, &caller.id)
+            } else {
+                let id = file_node_id(&ctx.dataset.id, &reference.source_file);
+                ctx.db.upsert_node(
+                    ctx.info.id.as_str(),
+                    &ctx.dataset.id,
+                    &id,
+                    "file",
+                    &reference.source_file,
+                    None,
+                )?;
+                id
+            };
             let (targets, payload) =
                 resolve_reference_targets(ctx, reference, &by_name, &by_file_name)?;
             for dst in targets {
@@ -537,7 +569,7 @@ fn resolve_reference_targets(
     ctx: &mut TaskContext,
     reference: &agent_core::SymbolReference,
     by_name: &HashMap<String, Vec<String>>,
-    by_file_name: &HashMap<(String, String), String>,
+    by_file_name: &HashMap<(String, String), Vec<String>>,
 ) -> Result<(Vec<String>, Option<String>)> {
     match reference.kind {
         agent_core::ReferenceKind::Imports => resolve_import_targets(ctx, reference, by_name),
@@ -552,11 +584,11 @@ fn resolve_call_targets(
     ctx: &mut TaskContext,
     reference: &agent_core::SymbolReference,
     by_name: &HashMap<String, Vec<String>>,
-    by_file_name: &HashMap<(String, String), String>,
+    by_file_name: &HashMap<(String, String), Vec<String>>,
 ) -> Result<(Vec<String>, Option<String>)> {
     let local = (reference.source_file.clone(), reference.target_name.clone());
-    if let Some(id) = by_file_name.get(&local) {
-        return Ok((vec![id.clone()], None));
+    if let Some(ids) = by_file_name.get(&local) {
+        return Ok((ids.clone(), None));
     }
     if let Some(ids) = by_name.get(&reference.target_name) {
         if !ids.is_empty() {

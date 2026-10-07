@@ -111,14 +111,15 @@ class InstallerPackageTests(unittest.TestCase):
                 func = stmt.value.func
                 if isinstance(func, ast.Attribute):
                     calls.append(func.attr)
-        self.assertEqual(calls, ["_install_desktop_packages", "_provision"])
+        self.assertEqual(calls, ["_install_desktop_packages", "_provision", "_activate_theme"])
         install_calls = []
         for stmt in functions["on_install"].body:
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
                 func = stmt.value.func
                 if isinstance(func, ast.Attribute):
                     install_calls.append(func.attr)
-        self.assertEqual(install_calls, ["_provision"])
+        self.assertEqual(install_calls, ["_provision", "_prepare_boot", "_configure_boot_branding",
+                                         "add_additional_packages", "_activate_theme"])
 
 
 class InstalledLauncherTests(unittest.TestCase):
@@ -183,6 +184,23 @@ class InstalledLauncherTests(unittest.TestCase):
             ext_dir = source / "usr/share/gnome-shell/extensions" / ext
             ext_dir.mkdir(parents=True)
             (ext_dir / "extension.js").write_text("ext")
+        portal = source / "usr/share/gnome-shell/extensions/02-zero-portal@02os"
+        portal.mkdir(parents=True)
+        (portal / "extension.js").write_text("portal")
+        for rel, contents in {
+            "usr/lib/tmpfiles.d/02os-zero-portal.conf": "d /run/02os-zero-portal 0770 root gdm -\n",
+            "usr/share/icons/hicolor/scalable/apps/02os-logo.svg": "<svg/>\n",
+            "usr/share/pixmaps/02os-logo.svg": "<svg/>\n",
+            "etc/os-release": 'NAME="02_OS"\nPRETTY_NAME="02_OS"\nID=02os\n',
+            "usr/share/plymouth/themes/02-zero-portal/02-zero-portal.plymouth": "[Plymouth Theme]\n",
+            "etc/plymouth/plymouthd.conf": "[Daemon]\nTheme=02-zero-portal\n",
+            "etc/dconf/profile/gdm": "user-db:user\nsystem-db:gdm\n",
+            "etc/dconf/db/gdm.d/00-02os-branding": "[org/gnome/login-screen]\nlogo='02os'\n",
+            "etc/dconf/db/gdm": "gdm-db",
+        }.items():
+            path = source / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents)
         icon = source / "usr/share/icons/02-OS"
         icon.mkdir(parents=True)
         (icon / "index.theme").write_text("[Icon Theme]\nName=02-OS\n")
@@ -196,7 +214,7 @@ class InstalledLauncherTests(unittest.TestCase):
         dconf = source / "etc/dconf/db/local.d/00-02os"
         dconf.parent.mkdir(parents=True)
         dconf.write_text(DEFAULTS.read_text())
-        (source / "etc/dconf/profile").mkdir(parents=True)
+        (source / "etc/dconf/profile").mkdir(parents=True, exist_ok=True)
         (source / "etc/dconf/profile/user").write_text("user-db:user\nsystem-db:local\n")
         (source / "etc/dconf/db/local").write_bytes(b"stale-compiled-db-with-02os-install.desktop")
         service = source / "usr/lib/systemd/user/02-agentd.service"

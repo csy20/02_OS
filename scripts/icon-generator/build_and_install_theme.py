@@ -3,6 +3,7 @@ import os
 import sys
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 
 # Import icon definition modules
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -155,12 +156,24 @@ def generate_theme_at(base_dir):
         with open(filepath, "w") as f:
             f.write(svg_content)
 
+    # Keep OS branding faithful to the approved boot logo, without a menu card.
+    with open(os.path.join(REPO_ROOT, "scripts", "boot-animation", "02-logo.svg")) as f:
+        logo_svg = f.read()
+    logo_root = ET.fromstring(logo_svg)
+    for dimension, size in (("width", "96"), ("height", "88")):
+        logo_svg = logo_svg.replace(
+            f'{dimension}="{logo_root.attrib[dimension]}"', f'{dimension}="{size}"', 1)
+    logo_path = os.path.join(apps_dir, "02os-logo.svg")
+    if os.path.islink(logo_path):
+        os.remove(logo_path)
+    with open(logo_path, "w") as f:
+        f.write(logo_svg)
+
     # Symlinks for Apps
     app_symlinks = {
         "start-here.svg": "02os-menu.svg",
-        "distributor-logo.svg": "02os-menu.svg",
-        "archlinux-logo.svg": "02os-menu.svg",
-        "02os-logo.svg": "02os-menu.svg",
+        "distributor-logo.svg": "02os-logo.svg",
+        "archlinux-logo.svg": "02os-logo.svg",
         "org.xfce.thunar.svg": "thunar.svg",
         "system-file-manager.svg": "thunar.svg",
         "nautilus.svg": "thunar.svg",

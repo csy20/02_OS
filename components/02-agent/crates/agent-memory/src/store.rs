@@ -1,6 +1,8 @@
 use agent_core::{
     paths::StoragePaths,
-    types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus, RepoId, RepoInfo},
+    types::{
+        EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus, RepoId, RepoInfo, SecretPattern,
+    },
     AgentError, Result,
 };
 use chrono::Utc;
@@ -39,7 +41,9 @@ impl MemoryStore {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(mem) = serde_json::from_str::<EvidenceMemory>(&line) {
+            if let Ok(mut mem) = serde_json::from_str::<EvidenceMemory>(&line) {
+                // Older stores may contain raw claims. Never expose those through any reader.
+                mem.claim = SecretPattern::redact(&mem.claim);
                 memories.push(mem);
             }
         }
@@ -60,6 +64,8 @@ impl MemoryStore {
     }
 
     fn save_unlocked(&self, memory: &EvidenceMemory) -> Result<()> {
+        let mut memory = memory.clone();
+        memory.claim = SecretPattern::redact(&memory.claim);
         let mut all = self.load_all()?;
         if let Some(pos) = all.iter().position(|m| m.id == memory.id) {
             all[pos] = memory.clone();
@@ -103,7 +109,9 @@ impl MemoryStore {
                 .open(&temp_path)?;
 
             for mem in memories {
-                let serialized = serde_json::to_string(mem)?;
+                let mut sanitized = mem.clone();
+                sanitized.claim = SecretPattern::redact(&sanitized.claim);
+                let serialized = serde_json::to_string(&sanitized)?;
                 writeln!(file, "{}", serialized)?;
             }
             file.flush()?;
@@ -172,7 +180,21 @@ impl MemoryStore {
             });
         }
 
-        for mem in &seeded {
+        for mem in &mut seeded {
+            for item in &mut mem.evidence {
+                match crate::MemoryVerifier::capture_evidence(
+                    &repo_info.root_path,
+                    &item.file,
+                    item.symbols.clone(),
+                    &item.commit,
+                ) {
+                    Ok(captured) => *item = captured,
+                    Err(_) => {
+                        mem.status = MemoryStatus::Stale;
+                        mem.confidence = 0.0;
+                    }
+                }
+            }
             self.save_unlocked(mem)?;
         }
 

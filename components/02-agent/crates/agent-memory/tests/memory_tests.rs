@@ -136,3 +136,45 @@ fn test_concurrent_saves_keep_every_row() {
     expected.sort();
     assert_eq!(ids, expected);
 }
+
+#[test]
+fn memory_store_redacts_new_and_legacy_claims_without_changing_evidence() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("memories.jsonl");
+    let store = MemoryStore::new(path.clone());
+    let token = format!("ghp_{}", "a".repeat(36));
+    let memory = EvidenceMemory {
+        id: "keep-id".into(),
+        claim: format!("auditprobe uses {token}"),
+        kind: MemoryKind::SecurityConstraint,
+        evidence: vec![EvidenceItem {
+            file: "src/auth.rs".into(),
+            symbols: vec!["authenticate".into()],
+            commit: "abc".into(),
+            fingerprint: Some("recorded-fingerprint".into()),
+        }],
+        valid_at: "abc".into(),
+        confidence: 0.0,
+        status: MemoryStatus::Invalidated,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    // Simulate a store written before the redaction boundary existed.
+    fs::write(
+        &path,
+        format!("{}\n", serde_json::to_string(&memory).unwrap()),
+    )
+    .unwrap();
+    let loaded = store.get("keep-id").unwrap().unwrap();
+    assert_eq!(loaded.claim, "auditprobe uses [REDACTED]");
+    assert_eq!(loaded.id, memory.id);
+    assert_eq!(loaded.evidence[0].file, memory.evidence[0].file);
+    assert_eq!(
+        loaded.evidence[0].fingerprint,
+        memory.evidence[0].fingerprint
+    );
+    assert_eq!(loaded.status, MemoryStatus::Invalidated);
+    store.save(&memory).unwrap();
+    assert!(!fs::read_to_string(&path).unwrap().contains(&token));
+    assert!(fs::read_to_string(&path).unwrap().contains("[REDACTED]"));
+}

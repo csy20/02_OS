@@ -1,4 +1,4 @@
-use crate::store::MemoryStore;
+use crate::{evidence::EvidenceSnapshot, store::MemoryStore};
 use agent_core::{
     config::RepoConfig,
     contain::{contains_symlink, read_regular_text_within},
@@ -14,71 +14,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-fn is_code_evidence(path: &str) -> bool {
-    Language::path_extracts_symbols(path)
-}
-
-struct LiveSymbols {
-    names: HashSet<String>,
-    fingerprints: HashMap<String, Vec<String>>,
-}
-
-fn live_symbols(root: &Path, relative: &str, max_bytes: u64) -> Option<LiveSymbols> {
-    let path = Path::new(relative);
-    let content = read_regular_text_within(root, path, max_bytes).ok()?;
-    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-    let extracted =
-        CodeExtractor::extract(relative, &content, Language::from_extension(extension)).ok()?;
-    let mut names = HashSet::new();
-    let mut fingerprints: HashMap<String, Vec<String>> = HashMap::new();
-    for symbol in extracted.symbols {
-        names.insert(symbol.name.clone());
-        names.insert(symbol.qualified_name.clone());
-        fingerprints
-            .entry(symbol.name.clone())
-            .or_default()
-            .push(symbol.fingerprint.clone());
-        fingerprints
-            .entry(symbol.qualified_name)
-            .or_default()
-            .push(symbol.fingerprint);
-    }
-    Some(LiveSymbols {
-        names,
-        fingerprints,
-    })
-}
-
-fn fingerprint_matches(live: &LiveSymbols, symbol: &str, recorded: &str) -> bool {
-    live.fingerprints
-        .get(symbol)
-        .map(|found| found.iter().any(|fingerprint| fingerprint == recorded))
-        .unwrap_or(false)
-}
-
 struct SymbolChanges {
-    pairs: HashSet<(String, String)>,
     names: HashSet<String>,
 }
 
 impl SymbolChanges {
     fn new() -> Self {
         Self {
-            pairs: HashSet::new(),
             names: HashSet::new(),
         }
     }
 
-    fn insert(&mut self, file: &str, name: &str, qualified: &str) {
-        self.pairs.insert((file.to_string(), name.to_string()));
-        if qualified != name {
-            self.pairs.insert((file.to_string(), qualified.to_string()));
-        }
+    fn insert(&mut self, _file: &str, name: &str, _qualified: &str) {
         self.names.insert(name.to_string());
-    }
-
-    fn touches(&self, file: &str, symbol: &str) -> bool {
-        self.pairs.contains(&(file.to_string(), symbol.to_string()))
     }
 }
 
@@ -199,60 +147,64 @@ impl StalenessEngine {
         let mut fresh_count = 0;
         let mut degraded_count = 0;
         let mut stale_count = 0;
-        let mut live_cache: HashMap<String, Option<LiveSymbols>> = HashMap::new();
+        let mut live_cache: HashMap<String, Option<EvidenceSnapshot>> = HashMap::new();
+        let mut commit_cache: HashMap<(String, String), Option<EvidenceSnapshot>> = HashMap::new();
 
         for mut mem in memories {
+            if mem.status == MemoryStatus::Invalidated {
+                stale_count += 1;
+                continue;
+            }
+
             let mut memory_changed = false;
             let mut has_stale_evidence = false;
             let mut has_degraded_evidence = false;
 
-            for ev in &mem.evidence {
+            for ev in &mut mem.evidence {
                 let relative = Path::new(&ev.file);
                 if contains_symlink(root, relative) || !root.join(relative).is_file() {
                     has_stale_evidence = true;
                     break;
                 }
 
-                if is_code_evidence(&ev.file) {
-                    let live = live_cache
-                        .entry(ev.file.clone())
-                        .or_insert_with(|| live_symbols(root, &ev.file, max_bytes));
-                    match live {
-                        Some(live) => {
-                            let symbols_supplied = !ev.symbols.is_empty();
-                            for sym in &ev.symbols {
-                                if !live.names.contains(sym) {
-                                    has_stale_evidence = true;
-                                } else if changed_symbols.touches(&ev.file, sym) {
-                                    has_degraded_evidence = true;
-                                }
-                            }
-                            if symbols_supplied {
-                                if let Some(recorded) = &ev.fingerprint {
-                                    let mismatched = ev.symbols.iter().any(|sym| {
-                                        live.names.contains(sym)
-                                            && !fingerprint_matches(live, sym, recorded)
-                                    });
-                                    if mismatched {
-                                        has_degraded_evidence = true;
-                                    }
-                                }
-                            }
-                        }
-                        None => has_stale_evidence = true,
-                    }
-                } else {
-                    for sym in &ev.symbols {
-                        if changed_symbols.touches(&ev.file, sym) {
+                let live = live_cache
+                    .entry(ev.file.clone())
+                    .or_insert_with(|| EvidenceSnapshot::load(root, &ev.file, max_bytes).ok());
+                match live {
+                    Some(snapshot) => {
+                        if !snapshot.symbols_exist(&ev.symbols) {
+                            has_stale_evidence = true;
+                        } else if !snapshot.matches(ev) {
                             has_degraded_evidence = true;
                         }
+                        if ev.fingerprint.is_none() {
+                            // Upgrade legacy evidence from its immutable cited commit, never
+                            // from the catalog that indexing may already have replaced.
+                            let recorded = commit_cache
+                                .entry((ev.file.clone(), ev.commit.clone()))
+                                .or_insert_with(|| {
+                                    git_repo
+                                        .read_text_at_commit(&ev.commit, &ev.file, max_bytes)
+                                        .ok()
+                                        .and_then(|content| {
+                                            EvidenceSnapshot::from_content(&ev.file, &content).ok()
+                                        })
+                                });
+                            if let Some(baseline) = recorded
+                                .as_ref()
+                                .and_then(|old| old.baseline(&ev.symbols).ok())
+                            {
+                                ev.fingerprint = Some(baseline);
+                                memory_changed = true;
+                                has_degraded_evidence |= !snapshot.matches(ev);
+                            } else {
+                                // Missing/unverifiable baselines require explicit verification.
+                                has_degraded_evidence = true;
+                            }
+                        }
                     }
+                    None => has_stale_evidence = true,
                 }
-            }
-
-            if mem.status == MemoryStatus::Invalidated {
-                stale_count += 1;
-                continue;
             }
 
             let old_status = mem.status;
@@ -260,8 +212,15 @@ impl StalenessEngine {
                 mem.status = MemoryStatus::Stale;
                 mem.confidence = 0.0;
             } else if has_degraded_evidence {
-                mem.status = MemoryStatus::Degraded;
-                mem.confidence = 0.70;
+                if old_status == MemoryStatus::Stale
+                    && mem.evidence.iter().any(|item| item.fingerprint.is_none())
+                {
+                    mem.status = MemoryStatus::Stale;
+                    mem.confidence = 0.0;
+                } else {
+                    mem.status = MemoryStatus::Degraded;
+                    mem.confidence = 0.70;
+                }
             } else {
                 // No changed symbols touching this memory -> preserve fresh status!
                 mem.status = MemoryStatus::Fresh;

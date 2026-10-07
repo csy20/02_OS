@@ -50,6 +50,13 @@ _work_dir_assert_mutable() {
   return 0
 }
 
+_work_dir_unlock_owned_directories() {
+  # mkarchiso leaves some copied directories mode 0555. Ownership alone does
+  # not make their entries removable. Do not follow links or change foreign
+  # directories; rm below still detects entries that require Docker reclaim.
+  find -P "$1" -type d -uid "$2" -exec chmod u+w -- {} + 2>/dev/null || true
+}
+
 _work_dir_reclaim() {
   local canonical="$1" marker="$2" host_uid="$3" host_gid="$4" home_canon="$5"
   if [[ ! -f "${marker}" || -L "${marker}" ]]; then
@@ -69,6 +76,7 @@ _work_dir_reclaim() {
     return 1
   fi
   _work_dir_assert_mutable "${canonical}" "${home_canon}"
+  _work_dir_unlock_owned_directories "${canonical}" "${host_uid}"
   rm -rf -- "${canonical}"
 }
 
@@ -175,6 +183,7 @@ prepare_work_dir() {
       return 1
     fi
     _work_dir_assert_mutable "${canonical}" "${home_canon}"
+    _work_dir_unlock_owned_directories "${canonical}" "${host_uid}"
     if ! rm -rf -- "${canonical}"; then
       _work_dir_reclaim "${canonical}" "${marker}" "${host_uid}" "${host_gid}" "${home_canon}"
     fi

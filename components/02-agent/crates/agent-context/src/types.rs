@@ -78,7 +78,18 @@ pub struct EvidencePackage {
 impl EvidencePackage {
     /// Pretty JSON actually delivered by the CLI `--json` path and the MCP context tool.
     pub fn serialized_payload(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
+        // Redact text before encoding so escaped secrets are handled correctly
+        // and a credential pattern can never consume JSON structure.
+        let mut safe = self.clone();
+        safe.task = SecretPattern::redact(&safe.task);
+        for memory in safe
+            .verified_memories
+            .iter_mut()
+            .chain(&mut safe.diagnostic_memories)
+        {
+            memory.claim = SecretPattern::redact(&memory.claim);
+        }
+        serde_json::to_string_pretty(&safe).unwrap_or_else(|_| "{}".to_string())
     }
 
     /// Render evidence package as a clean, structured Markdown document for LLM consumption.

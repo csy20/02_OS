@@ -87,11 +87,18 @@ extension's local schemas with `--strict`, then updates dconf. `02os-provision`
 requires and copies all four desktop extensions and their global schemas to an
 installed system, and compiles local schemas there too.
 
-The live greetd session needs PAM to register a Wayland session before launching
-GNOME. `02os-configure-greetd` derives a graphical session stack from Arch's
-`system-login` and changes only greetd's session include. Authentication and
-account rules stay with the distribution stack. This live autologin setup is
-excluded from installed systems.
+New live images use GDM for the native GNOME login screen and screen locking.
+Autologin is disabled: sign in with the existing `live` account and password
+`live`. GNOME Shell 50 creates its screen shield only when GDM's authentication
+service is available; registering a Wayland session through greetd alone does
+not provide native locking. The live GDM configuration and live service
+activation are excluded from installed systems, which keep their account and
+display-manager policy.
+
+The compatibility helper `02os-configure-greetd` still derives a graphical PAM
+session stack from Arch's `system-login` and changes only greetd's session
+include. It remains available for existing greetd sessions; GDM uses its own
+distribution PAM stack.
 
 ## Updating the packages
 

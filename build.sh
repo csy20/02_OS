@@ -64,7 +64,7 @@ snapshot_existing_isos() {
   while IFS= read -r iso; do
     [[ -n "${iso}" ]] || continue
     name="$(basename -- "${iso}")"
-    ISO_MTIME_BEFORE["${name}"]="$(stat -c '%Y.%N' -- "${iso}")"
+    ISO_MTIME_BEFORE["${name}"]="$(stat -c '%y:%s:%i' -- "${iso}")"
   done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
 }
 
@@ -76,7 +76,7 @@ identify_built_iso() {
   while IFS= read -r iso; do
     [[ -n "${iso}" ]] || continue
     name="$(basename -- "${iso}")"
-    mtime="$(stat -c '%Y.%N' -- "${iso}")"
+    mtime="$(stat -c '%y:%s:%i' -- "${iso}")"
     if [[ -z "${ISO_MTIME_BEFORE[${name}]+x}" ]]; then
       new_isos+=("${iso}")
     elif [[ "${ISO_MTIME_BEFORE[${name}]}" != "${mtime}" ]]; then
@@ -92,7 +92,7 @@ identify_built_iso() {
     echo "ERROR: could not identify the ISO this build wrote in ${OUT_DIR} (new: ${#new_isos[@]}, replaced: ${#changed_isos[@]})" >&2
     exit 1
   fi
-  printf '%s\n' "${revision}" > "${ISO_PATH}.commit"
+  python3 "${SCRIPT_DIR}/scripts/iso-manifest.py" create "${ISO_PATH}" "${revision}"
   echo "Built ISO: ${ISO_PATH}"
 }
 

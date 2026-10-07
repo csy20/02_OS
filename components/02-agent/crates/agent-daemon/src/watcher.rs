@@ -96,7 +96,7 @@ impl RepoWatcher {
         Ok(self.load_state()?.repositories.into_iter().collect())
     }
 
-    /// Background tick: reindex watched repos whose HEAD or worktree fingerprint changed.
+    /// Reconcile each indexed repo once on startup, then sync changed HEAD/worktree fingerprints.
     /// Returns the number of repositories whose sync failed.
     pub fn sync_all(&self) -> usize {
         let state = match self.load_state() {
@@ -136,7 +136,11 @@ impl RepoWatcher {
             let fps = self.fingerprint_lock();
             match fps.get(&repo_info.id) {
                 Some(fp) => fp != &current_fingerprint,
-                None => repo_info.modified_count > 0 || repo_info.untracked_count > 0,
+                // A clean current worktree can differ from the indexed snapshot: an
+                // untracked file may have been deleted, or dirty tracked content
+                // reverted, while the daemon was stopped. Establish the baseline
+                // only after an initial successful reconciliation.
+                None => true,
             }
         };
         drop(db);

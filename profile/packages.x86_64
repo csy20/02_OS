@@ -89,6 +89,7 @@ libnotify
 papirus-icon-theme
 pavucontrol
 polkit
+plymouth
 qt5-wayland
 qt6-wayland
 wl-clipboard
@@ -114,6 +115,7 @@ sqlite
 # GNOME (default session, Pop-style floating desktop)
 accountsservice
 dconf
+gdm
 gnome-console
 gnome-control-center
 gnome-keyring
@@ -135,4 +137,3 @@ qemu-guest-agent
 brltty
 espeak-ng
 espeakup
-

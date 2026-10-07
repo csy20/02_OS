@@ -57,6 +57,7 @@ fn walk(
         node: Node<'a>,
         scope: Vec<String>,
         current: Option<String>,
+        current_id: Option<String>,
     }
 
     // Heap stack: deeply nested expressions must not overflow the native stack.
@@ -64,16 +65,19 @@ fn walk(
         node: root,
         scope: Vec::new(),
         current: None,
+        current_id: None,
     }];
 
     while let Some(Frame {
         node,
         scope,
         current,
+        current_id,
     }) = stack.pop()
     {
         let mut child_scope = scope.clone();
         let mut next = current.clone();
+        let mut next_id = current_id.clone();
         if let Some(kind) = symbol_kind(node.kind()) {
             if let Some(name) = symbol_name(content, node) {
                 if !is_noise(name) {
@@ -92,6 +96,7 @@ fn walk(
                         doc_comment: None,
                         fingerprint: fingerprint(body),
                     });
+                    next_id = Some(declaration_id(file_path, &scope, &owned, node.start_byte()));
                     child_scope.push(owned.clone());
                     next = Some(owned);
                 }
@@ -110,6 +115,7 @@ fn walk(
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
                         source_symbol_name: next.clone(),
+                        source_symbol_id: next_id.clone(),
                         target_name: name.to_string(),
                         target_symbol_id: None,
                         kind,
@@ -143,6 +149,7 @@ fn walk(
                 references.push(SymbolReference {
                     source_file: file_path.to_string(),
                     source_symbol_name: next.clone(),
+                    source_symbol_id: next_id.clone(),
                     target_name: text.to_string(),
                     target_symbol_id: None,
                     kind: ReferenceKind::Imports,
@@ -158,6 +165,7 @@ fn walk(
                 node: child,
                 scope: child_scope.clone(),
                 current: next.clone(),
+                current_id: next_id.clone(),
             });
         }
     }

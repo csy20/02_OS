@@ -28,12 +28,13 @@ impl ContextCompiler {
         task: &str,
         token_budget: usize,
     ) -> Result<EvidencePackage> {
-        if token_budget == 0 {
-            return Ok(empty_package(task));
-        }
-        let root = repo_root.as_ref();
+        // Reject an impossible envelope before scanning evidence. A zero budget
+        // cannot represent even the JSON metadata of a successful response.
+        let mut minimum = empty_package(task, token_budget);
+        enforce_budget(&mut minimum)?;
+        let git_repo = GitRepo::open(repo_root)?;
+        let root = git_repo.root_path();
         let max_bytes = RepoConfig::load_or_default(root).max_file_size_kb * 1024;
-        let git_repo = GitRepo::open(root)?;
         let repo_info = git_repo.info()?;
         let repo_id = &repo_info.id;
 
@@ -48,9 +49,8 @@ impl ContextCompiler {
         let store = MemoryStore::for_repo(repo_id)?;
 
         // 1. Git staleness & diff detection
-        let diff_files = git_repo.get_diff_files().unwrap_or_default();
-        let _staleness_report =
-            StalenessEngine::evaluate(root, repo_id, &git_repo, &db, &store).ok();
+        let diff_files = git_repo.get_diff_files()?;
+        StalenessEngine::evaluate(root, repo_id, &git_repo, &db, &store)?;
 
         let head_commit_str = repo_info
             .head_commit
@@ -120,7 +120,7 @@ impl ContextCompiler {
                 entry.0 += sym_score;
                 entry.1.push(format!("defines symbol '{}'", sym.name));
 
-                if seen_symbols.insert(format!("{}:{}", sym.file_path, sym.name)) {
+                if seen_symbols.insert(sym.id.to_string()) {
                     candidate_symbols.push(ScoredSymbol {
                         symbol: sym.clone(),
                         score: sym_score,
@@ -207,7 +207,7 @@ impl ContextCompiler {
         }
 
         // Signal F: Prior verified memories
-        let memories = store.load_all().unwrap_or_default();
+        let memories = store.load_all()?;
         let mut relevant_memories = Vec::new();
         let mut diagnostic_memories = Vec::new();
         for mem in memories {
@@ -383,7 +383,7 @@ impl ContextCompiler {
         };
 
         let mut package = EvidencePackage {
-            task: task.to_string(),
+            task: SecretPattern::redact(task),
             repo_id: repo_id.to_string(),
             staleness: staleness_str,
             relevant_files: returned_files,
@@ -395,14 +395,14 @@ impl ContextCompiler {
             git_context: git_summary,
             budget: budget_report,
         };
-        enforce_budget(&mut package);
+        enforce_budget(&mut package)?;
         Ok(package)
     }
 }
 
-fn empty_package(task: &str) -> EvidencePackage {
+fn empty_package(task: &str, token_budget: usize) -> EvidencePackage {
     EvidencePackage {
-        task: task.to_string(),
+        task: SecretPattern::redact(task),
         repo_id: String::new(),
         staleness: String::new(),
         relevant_files: Vec::new(),
@@ -420,7 +420,7 @@ fn empty_package(task: &str) -> EvidencePackage {
         budget: BudgetReport {
             candidate_tokens: 0,
             returned_tokens: 0,
-            budget_limit: 0,
+            budget_limit: token_budget,
             candidate_files: 0,
             returned_files: 0,
         },
@@ -440,75 +440,98 @@ fn payload_tokens(package: &EvidencePackage) -> usize {
     estimate_tokens(&package.serialized_payload())
 }
 
-fn enforce_budget(package: &mut EvidencePackage) {
-    if package.budget.budget_limit == 0 {
-        package.relevant_files.clear();
-        package.relevant_symbols.clear();
-        package.relevant_tests.clear();
-        package.dependencies.clear();
-        package.verified_memories.clear();
-        package.diagnostic_memories.clear();
-        package.git_context.recent_commits.clear();
-        package.budget.returned_tokens = 0;
-        package.budget.returned_files = 0;
-        return;
-    }
-    let limit = package.budget.budget_limit;
-    for _ in 0..8192 {
+/// Stabilize the self-reported usage (its decimal digits are part of the payload).
+fn update_usage(package: &mut EvidencePackage) -> usize {
+    package.budget.returned_files = package.relevant_files.len();
+    package.budget.returned_tokens = 0;
+    loop {
         let tokens = payload_tokens(package);
-        if tokens <= limit && package.budget.returned_tokens == tokens {
-            return;
+        if tokens == package.budget.returned_tokens {
+            return tokens;
         }
-        if tokens <= limit {
-            package.budget.returned_tokens = tokens;
-            continue;
-        }
-        if !drop_budget_item(package) {
-            package.budget.returned_tokens = tokens;
-            let adjusted = payload_tokens(package);
-            package.budget.returned_tokens = adjusted;
-            return;
-        }
+        package.budget.returned_tokens = tokens;
     }
 }
 
-fn drop_budget_item(package: &mut EvidencePackage) -> bool {
-    if let Some(file) = package
+fn removable_items(package: &EvidencePackage) -> usize {
+    package
         .relevant_files
-        .iter_mut()
-        .rev()
-        .find(|file| file.snippet.is_some())
-    {
-        file.snippet = None;
-        return true;
+        .iter()
+        .filter(|file| file.snippet.is_some())
+        .count()
+        + package.relevant_symbols.len()
+        + package.relevant_files.len()
+        + package.git_context.recent_commits.len()
+        + package.verified_memories.len()
+        + package.diagnostic_memories.len()
+        + package.dependencies.len()
+        + package.relevant_tests.len()
+        + usize::from(!package.git_context.modified_files.is_empty())
+}
+
+/// Keep the existing removal priority while pruning whole groups in one pass.
+fn drop_budget_items(package: &mut EvidencePackage, mut count: usize) {
+    for file in package.relevant_files.iter_mut().rev() {
+        if count == 0 {
+            return;
+        }
+        if file.snippet.take().is_some() {
+            count -= 1;
+        }
     }
-    if package.relevant_symbols.pop().is_some() {
-        return true;
+    macro_rules! trim {
+        ($items:expr) => {{
+            let drop = count.min($items.len());
+            $items.truncate($items.len() - drop);
+            count -= drop;
+            if count == 0 {
+                return;
+            }
+        }};
     }
-    if package.relevant_files.pop().is_some() {
-        package.budget.returned_files = package.relevant_files.len();
-        return true;
-    }
-    if package.git_context.recent_commits.pop().is_some() {
-        return true;
-    }
-    if package.verified_memories.pop().is_some() {
-        return true;
-    }
-    if package.diagnostic_memories.pop().is_some() {
-        return true;
-    }
-    if package.dependencies.pop().is_some() {
-        return true;
-    }
-    if package.relevant_tests.pop().is_some() {
-        return true;
-    }
-    if !package.git_context.modified_files.is_empty() {
+    trim!(package.relevant_symbols);
+    trim!(package.relevant_files);
+    trim!(package.git_context.recent_commits);
+    trim!(package.verified_memories);
+    trim!(package.diagnostic_memories);
+    trim!(package.dependencies);
+    trim!(package.relevant_tests);
+    if count > 0 {
         package.git_context.modified_files.clear();
-        return true;
     }
-    false
+}
+
+fn enforce_budget(package: &mut EvidencePackage) -> Result<()> {
+    let limit = package.budget.budget_limit;
+    if update_usage(package) <= limit {
+        return Ok(());
+    }
+    let items = removable_items(package);
+    let mut minimum = package.clone();
+    drop_budget_items(&mut minimum, items);
+    let required = update_usage(&mut minimum);
+    if required > limit {
+        return Err(AgentError::General(format!(
+            "Context metadata requires at least {required} estimated tokens; budget is {limit}. Shorten the task or increase the budget."
+        )));
+    }
+    // Search the smallest number of removals that fits. Each probe serializes
+    // once per usage stabilization, instead of serializing after every item.
+    let mut low = 1;
+    let mut high = items;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let mut candidate = package.clone();
+        drop_budget_items(&mut candidate, middle);
+        if update_usage(&mut candidate) <= limit {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    drop_budget_items(package, low);
+    update_usage(package);
+    Ok(())
 }
 
 /// Extract focused window around line numbers, respecting remaining token allowance.
@@ -577,4 +600,89 @@ fn push_bounded(out: &mut String, text: &str, max_tokens: usize) -> bool {
     }
     out.push_str(&piece);
     true
+}
+
+#[cfg(test)]
+mod budget_regressions {
+    use super::*;
+    use agent_core::{EvidenceMemory, MemoryKind};
+    use chrono::Utc;
+
+    fn large_package(count: usize) -> EvidencePackage {
+        let mut package = empty_package("architecture", 2000);
+        let now = Utc::now();
+        package.verified_memories = (0..count)
+            .map(|index| EvidenceMemory {
+                id: format!("mem_{index}"),
+                claim: "documented architecture constraint ".repeat(20),
+                kind: MemoryKind::ArchitecturalFact,
+                evidence: Vec::new(),
+                valid_at: "fixture".into(),
+                confidence: 1.0,
+                status: MemoryStatus::Fresh,
+                created_at: now,
+                updated_at: now,
+            })
+            .collect();
+        package
+    }
+
+    #[test]
+    fn rejects_zero_and_oversized_task_metadata() {
+        for (task, limit) in [("short".to_string(), 0), ("🌀\\\"\n".repeat(1000), 200)] {
+            let error = enforce_budget(&mut empty_package(&task, limit)).unwrap_err();
+            assert!(error.to_string().contains("Context metadata requires"));
+        }
+    }
+
+    #[test]
+    fn budgets_the_final_redacted_serialization_and_keeps_maximal_evidence() {
+        let token = format!("ghp_{}", "a".repeat(36));
+        let mut package = large_package(50);
+        package.task = format!("architecture {token}");
+        let original = package.clone();
+        enforce_budget(&mut package).unwrap();
+        let payload = package.serialized_payload();
+        assert!(!payload.contains(&token));
+        serde_json::from_str::<serde_json::Value>(&payload).unwrap();
+        assert_eq!(package.budget.returned_tokens, estimate_tokens(&payload));
+        assert!(package.budget.returned_tokens <= package.budget.budget_limit);
+        assert!(!package.verified_memories.is_empty());
+        let removals = original.verified_memories.len() - package.verified_memories.len();
+        let mut one_more = original;
+        drop_budget_items(&mut one_more, removals - 1);
+        assert!(update_usage(&mut one_more) > package.budget.budget_limit);
+    }
+
+    #[test]
+    #[ignore = "comparison benchmark; run explicitly with --ignored --nocapture"]
+    fn benchmark_budget_pruning() {
+        let original = large_package(512);
+        let mut sequential = original.clone();
+        let start = std::time::Instant::now();
+        // Reproduce the previous sequential serialization loop on identical
+        // redacted data. This isolates pruning from other compiler changes.
+        for _ in 0..8192 {
+            let tokens = payload_tokens(&sequential);
+            if tokens <= sequential.budget.budget_limit {
+                if sequential.budget.returned_tokens == tokens {
+                    break;
+                }
+                sequential.budget.returned_tokens = tokens;
+            } else {
+                drop_budget_items(&mut sequential, 1);
+                sequential.budget.returned_files = sequential.relevant_files.len();
+            }
+        }
+        let sequential_us = start.elapsed().as_micros();
+        let mut optimized = original;
+        let start = std::time::Instant::now();
+        enforce_budget(&mut optimized).unwrap();
+        let optimized_us = start.elapsed().as_micros();
+        assert_eq!(
+            sequential.serialized_payload(),
+            optimized.serialized_payload()
+        );
+        println!("budget_pruning: sequential_us={sequential_us} optimized_us={optimized_us} memories=512 retained={}", optimized.verified_memories.len());
+    }
 }

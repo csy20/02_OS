@@ -22,8 +22,11 @@ cd ../..
 python3 -m unittest discover -s scripts/tests -v
 ```
 
-Install `desktop-file-utils` and the package providing `glib-compile-schemas`
-before running the profile checks. Set `AGENT_BINARY` to an absolute path to a
+Install `desktop-file-utils` and the packages providing `glib-compile-schemas`
+and `dconf` before running the profile and installer checks. On Ubuntu these
+are `desktop-file-utils`, `libglib2.0-bin` and `dconf-cli`; the installer regression
+uses the real `dconf compile` to verify regenerated desktop defaults.
+Set `AGENT_BINARY` to an absolute path to a
 freshly built `02` executable when using a different Cargo target directory.
 Unix-socket Rust tests need an environment that permits temporary sockets.
 The smoke tests isolate XDG storage, use synthetic data and temporary Git
@@ -78,6 +81,10 @@ Use harmless fixture markers rather than personal files or live credentials.
 
 Run these on a dedicated disposable VM runner, because the ISO build requires
 privileged Docker. Never run the installer against the runner's host disks.
+
+Use the canonical installed-VM test credentials in
+[`VM_TESTING.md`](VM_TESTING.md) and [`scripts/vm-test-credentials.json`](../scripts/vm-test-credentials.json).
+Update reused test snapshots to that password before testing authentication.
 
 1. Build using `./build.sh` from the exact commit. That is the only supported
    image build: it records the commit, checks the staged runtime against the
