@@ -1,0 +1,6 @@
+NAME="02_OS"
+PRETTY_NAME="02_OS"
+ID=02os
+ID_LIKE=arch
+BUILD_ID=rolling
+LOGO=02os-logo

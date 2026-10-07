@@ -257,7 +257,7 @@ def build_gallery():
         <div class="badge">02_OS Design System</div>
         <h1>02-OS Glassmorphic Icon Pack</h1>
         <p class="subtitle">
-          A bespoke, continuous-squircle vector icon system engineered for 02_OS (Arch Linux Hyprland & GNOME).
+          A bespoke, continuous-squircle vector icon system engineered for 02_OS.
           Crafted with multi-layer depth, frosted glass sheen, specular edge rim lighting, and vibrant gradients.
         </p>
       </div>

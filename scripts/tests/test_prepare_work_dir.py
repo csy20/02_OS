@@ -108,6 +108,34 @@ class PrepareWorkDirTests(unittest.TestCase):
         self.assertTrue(work.is_dir())
         self.assertTrue(self.marker(work).is_file())
 
+    def test_reclaims_read_only_marked_directories_without_following_symlinks(self):
+        parent = self.make_temp("02os-readonly-")
+        work, outside = parent / "work", parent / "outside"
+        self.assertEqual(self.run_prepare(work).returncode, 0)
+        nested = work / "airootfs"
+        nested.mkdir()
+        (nested / "sentinel").write_text("remove")
+        outside.mkdir()
+        (outside / "sentinel").write_text("keep")
+        (nested / "outside-link").symlink_to(outside, target_is_directory=True)
+        nested.chmod(0o555)
+        outside.chmod(0o555)
+        fake_bin = parent / "bin"
+        fake_bin.mkdir()
+        docker = fake_bin / "docker"
+        docker.write_text("#!/bin/sh\nexit 73\n")
+        docker.chmod(0o755)
+        try:
+            result = self.run_prepare(work, {"PATH": str(fake_bin) + ":" + os.environ["PATH"]})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(work.iterdir()), [])
+            self.assertEqual((outside / "sentinel").read_text(), "keep")
+            self.assertEqual(outside.stat().st_mode & 0o777, 0o555)
+        finally:
+            outside.chmod(0o755)
+            if nested.exists():
+                nested.chmod(0o755)
+
     def test_df_failure_does_not_create_work_dir(self):
         parent = self.make_temp("02os-df-")
         work = parent / "work"
