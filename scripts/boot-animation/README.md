@@ -28,6 +28,29 @@ extensions and their user defaults remain separate. The provisioner copies
 both boot stages, the greeter settings and the tmpfiles configuration into
 installed systems. A new ISO must be built to include these changes.
 
+Installed boot branding targets Archinstall 4.5. Its `on_install` hook installs
+adapters on that installer instance before bootloader generation; a different
+version or incompatible method signature fails explicitly. The title pass runs
+immediately after generation and uses the current installation's BLS filenames,
+GRUB local-kernel sections, or selected Limine/rEFInd configuration. Root and
+encryption identities distinguish current entries from neighboring entries in
+shared configurations. Foreign configurations and GRUB os-prober sections keep
+their original contents.
+
+EFISTUB uses a version-specific adapter of Archinstall's entry creation method
+that supplies `02_OS` as the label. Disk, partition, kernel, initrd, command line,
+and UKI handling remain the same; it never scans or renames existing firmware
+entries. Recording tests compare the unmodified Archinstall 4.5 dispatch with
+the adapter, without installing an OS or accessing disks or NVRAM:
+
+```sh
+python3 -m unittest discover -s scripts/tests -p 'test_installed_boot.py' -v
+```
+
+The adapter and its upstream recording fixture retain Archinstall's
+`GPL-3.0-only` license. Source provenance, modifications and the full upstream
+license are documented in [the fixture notes](../tests/fixtures/README.md).
+
 ```sh
 python3 scripts/boot-animation/generate_assets.py
 ```
@@ -35,7 +58,7 @@ python3 scripts/boot-animation/generate_assets.py
 `check_native.c` exercises the actual Plymouth script plugin, including parse,
 elapsed fade, repeated refresh, long-boot hold, prompts/messages, resizing,
 shutdown and quit. Compile it against the matching installed Plymouth headers
-and libraries. This verifies the native logo stage; the circular live reveal
+and libraries. This verifies the native logo stage; the oval live reveal
 requires a GNOME 50 VM check, including boot, interruption and greeter re-entry.
 
 The screen-design PNGs are proposals only. Changing desktop wallpaper affects

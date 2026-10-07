@@ -37,7 +37,8 @@ impl GitRepo {
         let root = repo
             .workdir()
             .ok_or_else(|| AgentError::Git("Bare repository not supported".into()))?
-            .to_path_buf();
+            .canonicalize()
+            .map_err(|e| AgentError::Git(format!("Failed to resolve worktree root: {e}")))?;
         Ok(Self { repo, root })
     }
 
@@ -221,6 +222,58 @@ impl GitRepo {
         } else {
             Ok(None)
         }
+    }
+
+    /// Read a regular UTF-8 evidence blob at an exact commit, with a size cap.
+    pub fn read_text_at_commit(
+        &self,
+        commit_id: &str,
+        relative_path: &str,
+        max_bytes: u64,
+    ) -> Result<String> {
+        use agent_core::{contain::reject_escaping_relative, SecretPattern};
+        let path = Path::new(relative_path);
+        reject_escaping_relative(path)?;
+        if SecretPattern::is_secret(path) {
+            return Err(AgentError::Security(
+                "secret filename is not evidence".into(),
+            ));
+        }
+        let oid = git2::Oid::from_str(commit_id)
+            .map_err(|e| AgentError::Git(format!("Invalid evidence commit: {e}")))?;
+        let commit = self
+            .repo
+            .find_commit(oid)
+            .map_err(|e| AgentError::Git(format!("Evidence commit unavailable: {e}")))?;
+        let tree = commit
+            .tree()
+            .map_err(|e| AgentError::Git(format!("Evidence tree unavailable: {e}")))?;
+        let entry = tree
+            .get_path(path)
+            .map_err(|e| AgentError::Git(format!("Evidence path unavailable at commit: {e}")))?;
+        if !matches!(entry.filemode(), 0o100644 | 0o100755) {
+            return Err(AgentError::Security(
+                "evidence blob is not a regular file".into(),
+            ));
+        }
+        let odb = self
+            .repo
+            .odb()
+            .map_err(|e| AgentError::Git(format!("Evidence object database unavailable: {e}")))?;
+        let (size, kind) = odb
+            .read_header(entry.id())
+            .map_err(|e| AgentError::Git(format!("Evidence blob header unavailable: {e}")))?;
+        if kind != git2::ObjectType::Blob || size as u64 > max_bytes {
+            return Err(AgentError::Security(
+                "evidence blob exceeds the configured size limit".into(),
+            ));
+        }
+        let blob = self
+            .repo
+            .find_blob(entry.id())
+            .map_err(|e| AgentError::Git(format!("Evidence blob unavailable: {e}")))?;
+        String::from_utf8(blob.content().to_vec())
+            .map_err(|_| AgentError::Security("evidence blob is not valid UTF-8".into()))
     }
 
     /// Retrieve the recent commit log.

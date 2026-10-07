@@ -32,7 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install regression validators
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils libglib2.0-bin
       - name: Build actual CLI and daemon with locked dependencies
         run: cargo build --locked --workspace --manifest-path components/02-agent/Cargo.toml
-      - name: Exercise disposable CLI and MCP fixtures
-        run: python3 -m unittest discover -s scripts/tests -p test_runtime_smoke.py -v
+      - name: Exercise all profile, installer, release and runtime regressions
+        run: python3 -m unittest discover -s scripts/tests -v

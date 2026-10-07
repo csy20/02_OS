@@ -130,7 +130,7 @@ components/02-agent/
   - `Degraded`: Code touched or surrounding context changed, confidence lowered.
   - `Stale`: Linked symbol modified or deleted, requires verification.
   - `Invalidated`: Explicitly marked obsolete.
-- **Storage**: Append-friendly JSONL stored at `~/.local/share/02-agent/repos/<repo-id>/memories.jsonl`.
+- **Storage**: Append-friendly JSONL stored at `~/.local/share/02-agent/repos/<repo-id>/memories.jsonl`. Claims are redacted both when stored and when legacy rows are read. New evidence records a versioned selected-symbol or whole-file fingerprint; legacy evidence with no fingerprint is checked against its cited commit and requires explicit verification if that commit is unavailable.
 
 ### 2.6 `agent-context`
 - **Task Intent Parsing**: Extracts identifiers, keywords, file paths, and operations from natural language prompts.
@@ -143,7 +143,7 @@ components/02-agent/
   6. BM25 full-text search score (Normalized 0.0 - 5.0)
   7. Fresh architectural memories (Score: +2.5)
   8. Recent commit activity (Score: +1.5)
-- **Token Budget Allocator**: Dynamic knapsack packing algorithm ensuring output remains strictly under the `--budget` limit (default 8,000 tokens).
+- **Token Budget Allocator**: Ranked evidence selection followed by bounded pruning against the final redacted JSON payload (default 8,000 estimated tokens).
 - **Dual Format Output**: Emits structured JSON (`--json`) or human/agent-readable Markdown.
 
 ### 2.7 `agent-mcp`
@@ -176,7 +176,7 @@ components/02-agent/
 
 ## 3. SQLite Storage Schema
 
-All index metadata is stored in `~/.local/share/02-agent/repos/<repo-id>/index.sqlite`. The database is schema version 2. The statements below match `components/02-agent/crates/agent-index/src/schema.rs`.
+All index metadata is stored in `~/.local/share/02-agent/repos/<repo-id>/index.sqlite`. The database is schema version 3. Existing v1/v2 catalogs upgrade in place; references without caller IDs are re-extracted on the next index or cognify run. The statements below match `components/02-agent/crates/agent-index/src/schema.rs`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS files (
@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS symbol_references (
     repo_id TEXT NOT NULL,
     source_file TEXT NOT NULL,
     source_symbol_name TEXT,
+    source_symbol_id TEXT,
     target_name TEXT NOT NULL,
     target_symbol_id TEXT,
     kind TEXT NOT NULL,
@@ -287,14 +288,18 @@ CREATE TABLE IF NOT EXISTS graph_edges (
 
 ## 5. Token Budget Allocation Algorithm
 
-The context compiler maximizes evidence density while staying strictly within the requested token budget:
+The context compiler ranks evidence and estimates tokens as UTF-8 bytes divided
+by four, rounded up. This is a deterministic estimate, rather than a tokenizer
+for a particular model. `budget.returned_tokens` counts the final pretty JSON
+payload, including metadata and the budget report itself.
 
-1. **Budget Partitioning**:
-   - Manifest & Environment Anchor: ~5% of budget.
-   - Working Tree Diffs: ~15% of budget.
-   - Top Ranked Symbols & Definitions: ~40% of budget.
-   - Call Graphs & Dependency Chains: ~15% of budget.
-   - Related Test Suites: ~15% of budget.
-   - Architectural Memories & Commits: ~10% of budget.
-2. **Greedy Knapsack Packing**: Each candidate chunk is estimated for tokens (4 characters per token heuristic). Items are packed in decreasing order of multi-signal relevance score.
-3. **Smart Truncation**: If a symbol definition or test file exceeds the remaining chunk quota, the compiler preserves the signature and docstring while collapsing the body.
+Files are selected by relevance, with bounded excerpts around matched symbols.
+The compiler then removes optional items in priority order until the entire
+serialized package fits. It uses binary search over removal counts to avoid
+serializing once for every discarded memory or symbol. It preserves complete
+JSON and evidence records.
+
+A zero budget, an oversized task, or any budget too small for the required
+metadata returns an explicit error describing the minimum estimate. Successful
+CLI JSON and MCP context payloads always fit their requested estimated budget.
+Shorten the task or increase the budget when metadata cannot fit.

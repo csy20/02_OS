@@ -501,3 +501,108 @@ trust_level = \"trusted\"
         root.join(".config/zed/settings.json")
     );
 }
+
+#[test]
+fn codex_connect_preserves_complete_toml_values_and_replaces_atomically() {
+    use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = tempdir().unwrap();
+    let path = home.path().join(".codex/config.toml");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = r####"
+model = "keep-me"
+custom_instructions = """Follow \u0061ll checks. \U0001f642\b\f
+Continue \
+    across this line."""
+literal_instructions = '''Keep literal \u0061 and "quotes".'''
+inline_settings = { "quoted.key" = [1, 2], enabled = true }
+
+[[skills.config]]
+path = "/tmp/fixture/first/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/tmp/fixture/second/SKILL.md"
+enabled = true
+
+[projects."/tmp/fixture/quoted project"]
+trust_level = "trusted"
+
+[mcp_servers.other]
+command = "other-server"
+args = ["--keep"]
+
+[mcp_servers.02]
+command = "old-server"
+args = ["--old"]
+startup_timeout_sec = 30
+
+[mcp_servers.02.env]
+KEEP_SETTING = "keep-me"
+"####;
+    fs::write(&path, original).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+    let mut old_file = fs::File::open(&path).unwrap();
+    let mut expected: toml::Table = toml::from_str(original).unwrap();
+    expected["mcp_servers"]["02"]["command"] = toml::Value::String("02".into());
+    expected["mcp_servers"]["02"]["args"] =
+        toml::Value::Array(vec![toml::Value::String("mcp".into())]);
+
+    AgentConnector::connect_at(home.path(), "codex", true).unwrap();
+    let rewritten = fs::read_to_string(&path).unwrap();
+    let actual: toml::Table = toml::from_str(&rewritten).unwrap();
+    assert_eq!(actual, expected);
+    assert!(actual["custom_instructions"]
+        .as_str()
+        .unwrap()
+        .starts_with("Follow all checks. 🙂"));
+    assert_eq!(actual["skills"]["config"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+
+    // Existing readers must keep the complete old document; a truncating rewrite
+    // would also change the bytes visible through this already-open handle.
+    let mut old_contents = String::new();
+    old_file.read_to_string(&mut old_contents).unwrap();
+    assert_eq!(old_contents, original);
+    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+}
+
+#[test]
+fn codex_connect_rejects_invalid_input_without_replacing_the_config() {
+    let home = tempdir().unwrap();
+    let path = home.path().join(".codex/config.toml");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for invalid in ["model = \"unterminated", "mcp_servers.02 = 5\n"] {
+        fs::write(&path, invalid).unwrap();
+        assert!(AgentConnector::connect_at(home.path(), "codex", true).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), invalid);
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn connect_refuses_symlinked_config_and_creates_new_configs_privately() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempdir().unwrap();
+    let external = home.path().join("external-config.toml");
+    let original = "model = \"keep-me\"\n";
+    fs::write(&external, original).unwrap();
+    let path = home.path().join(".codex/config.toml");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&external, &path).unwrap();
+    assert!(AgentConnector::connect_at(home.path(), "codex", true).is_err());
+    assert!(path.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&external).unwrap(), original);
+    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+
+    fs::remove_file(&path).unwrap();
+    AgentConnector::connect_at(home.path(), "codex", true).unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}

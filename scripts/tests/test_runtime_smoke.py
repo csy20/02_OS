@@ -165,6 +165,47 @@ class RuntimeSmokeTests(unittest.TestCase):
                 self.assertFalse(response["result"]["isError"])
                 self.assertIn("smoke_entry", response["result"]["content"][0]["text"])
 
+    def test_subdirectory_override_keeps_parent_catalog_and_context_snippets(self):
+        (self.repo / "src").mkdir()
+        (self.repo / "src/lib.rs").write_text("pub fn nested_entry() {}\n")
+        self.commit("nested source")
+        self.initialize()
+        requests = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+                "name": "repository_context", "arguments": {
+                    "task": "smoke_entry nested_entry", "token_budget": 8000,
+                    "repo_path": str(self.repo / "src")}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                "name": "add", "arguments": {
+                    "source": "worktree", "repo_path": str(self.repo / "src")}}},
+        ]
+        wire = "\n".join(map(json.dumps, requests)) + "\n"
+        responses = [json.loads(line) for line in self.run_command(str(BINARY), "mcp", input=wire).stdout.splitlines()]
+        self.assertTrue(all(not response["result"]["isError"] for response in responses))
+        context = json.loads(responses[0]["result"]["content"][0]["text"])
+        snippets = {file["relative_path"]: file["snippet"] for file in context["relevant_files"]}
+        self.assertIn("smoke_entry", snippets["main.rs"])
+        self.assertIn("nested_entry", snippets["src/lib.rs"])
+        database = next((self.base / "data").rglob("index.sqlite"))
+        with sqlite3.connect(database) as connection:
+            paths = {row[0] for row in connection.execute("SELECT relative_path FROM files")}
+        self.assertTrue({".gitignore", "main.rs", "src/lib.rs"} <= paths)
+        self.assertNotIn("lib.rs", paths)
+        self.assertEqual(self.cli("symbol", "smoke_entry")["count"], 1)
+
+    def test_impossible_context_budget_returns_an_error(self):
+        self.initialize()
+        for task, budget in [("smoke_entry", 0), ("budgetprobe " * 1000, 200)]:
+            result = self.run_command(str(BINARY), "--json", "context", task,
+                                      "--budget", str(budget), check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Context metadata requires", result.stderr)
+            request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+                "name": "repository_context", "arguments": {"task": task, "token_budget": budget}}}
+            reply = json.loads(self.run_command(str(BINARY), "mcp", input=json.dumps(request) + "\n").stdout)
+            self.assertTrue(reply["result"]["isError"])
+            self.assertIn("Context metadata requires", reply["result"]["content"][0]["text"])
+
     def test_failure_outside_repository_has_nonzero_exit(self):
         result = subprocess.run([str(BINARY), "status"], cwd=self.base, env=self.env,
                                 capture_output=True, text=True, timeout=10)

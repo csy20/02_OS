@@ -325,6 +325,9 @@ impl ReferenceKind {
 pub struct SymbolReference {
     pub source_file: String,
     pub source_symbol_name: Option<String>,
+    /// Exact declaration identity; absent in catalogs written by older runtimes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_symbol_id: Option<String>,
     pub target_name: String,
     pub target_symbol_id: Option<String>,
     pub kind: ReferenceKind,
@@ -405,6 +408,7 @@ pub struct EvidenceItem {
     pub file: String,
     pub symbols: Vec<String>,
     pub commit: String,
+    /// Legacy symbol hash or a versioned symbols-v1/file-v1 evidence baseline.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,
 }

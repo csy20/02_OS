@@ -53,10 +53,10 @@ def build_gallery():
         cat_path = os.path.join(ICONS_DIR, cat)
         if not os.path.exists(cat_path):
             continue
-    
+
         files = sorted([f for f in os.listdir(cat_path) if f.endswith(".svg") and not os.path.islink(os.path.join(cat_path, f))])
         symlinks = sorted([f for f in os.listdir(cat_path) if f.endswith(".svg") and os.path.islink(os.path.join(cat_path, f))])
-    
+
         cards = []
         for f in files:
             svg_path = os.path.join(cat_path, f)
@@ -65,7 +65,7 @@ def build_gallery():
             name_for_id = f[:-4]
             svg_data = prefix_svg_ids(svg_data, svg_id_prefix(cat, name_for_id, card_index))
             card_index += 1
-        
+
             # Extract title without .svg
             name = f[:-4]
             # Find aliases
@@ -119,7 +119,7 @@ def build_gallery():
         }}
         body {{
           background-color: var(--bg);
-          background-image: 
+          background-image:
             radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.12) 0px, transparent 50%),
             radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.12) 0px, transparent 50%),
             radial-gradient(at 50% 100%, rgba(14, 165, 233, 0.08) 0px, transparent 50%);
@@ -268,7 +268,7 @@ def build_gallery():
     </html>
     """
 
-    return html
+    return "\n".join(line.rstrip() for line in html.split("\n"))
 
 
 def main():

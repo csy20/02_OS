@@ -1,4 +1,4 @@
-pub const CURRENT_SCHEMA_VERSION: i32 = 2;
+pub const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 /// Schema written by runtime versions that only knew the file/symbol catalog.
 pub const SCHEMA_V1_SQL: &str = r#"

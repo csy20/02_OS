@@ -20,10 +20,31 @@ resolve() {
 }
 
 lines=""
+# ReadWritePaths unquotes arguments and expands % specifiers. It does not decode
+# C hex escapes. Preserve literal bytes, escaping quotes/backslashes and %.
+quote_path() {
+  printf '"'
+  printf '%s' "$1" | LC_ALL=C awk '
+    NR > 1 {
+      print "02-agent-storage: a storage path contains a newline" > "/dev/stderr";
+      exit 1;
+    }
+    { for (i = 1; i <= length($0); i++) {
+        byte = substr($0, i, 1);
+        if (byte == "\\") printf "\\\\";
+        else if (byte == "\"") printf "\\\"";
+        else if (byte == "%") printf "%%%%";
+        else printf "%s", byte;
+      }
+    }' || return 1
+  printf '"'
+}
+
 add_path() {
   case "$1" in
     /*)
-      lines="${lines}ReadWritePaths=$1
+      quoted_path=$(quote_path "$1") || exit 1
+      lines="${lines}ReadWritePaths=$quoted_path
 "
       ;;
   esac

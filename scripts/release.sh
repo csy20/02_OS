@@ -30,7 +30,7 @@ for arg in "$@"; do
 done
 
 # ISO_PATH is global. A fresh build must be the new name, or the single ISO
-# whose bytes changed, and its .commit stamp must be HEAD. Untouched older
+# whose bytes changed, and its completion manifest must match HEAD and bytes. Untouched older
 # images in out/ are never selected. --reuse-iso stays count-strict.
 select_fresh_iso() {
     declare -A before=()
@@ -39,7 +39,7 @@ select_fresh_iso() {
         while IFS= read -r iso; do
             [[ -n "${iso}" ]] || continue
             name="$(basename -- "${iso}")"
-            before["${name}"]="$(stat -c '%Y.%N' -- "${iso}")"
+            before["${name}"]="$(stat -c '%y:%s:%i' -- "${iso}")"
         done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
     fi
 
@@ -55,7 +55,7 @@ select_fresh_iso() {
     while IFS= read -r iso; do
         [[ -n "${iso}" ]] || continue
         name="$(basename -- "${iso}")"
-        mtime="$(stat -c '%Y.%N' -- "${iso}")"
+        mtime="$(stat -c '%y:%s:%i' -- "${iso}")"
         if [[ -z "${before[${name}]+x}" ]]; then
             new_isos+=("${iso}")
         elif [[ "${before[${name}]}" != "${mtime}" ]]; then
@@ -63,32 +63,19 @@ select_fresh_iso() {
         fi
     done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name '02_OS-*.iso' -print | sort)
 
-    local replaced=0
     if [[ "${#new_isos[@]}" -eq 1 && "${#changed_isos[@]}" -eq 0 ]]; then
         ISO_PATH="${new_isos[0]}"
     elif [[ "${#new_isos[@]}" -eq 0 && "${#changed_isos[@]}" -eq 1 ]]; then
         ISO_PATH="${changed_isos[0]}"
-        replaced=1
     else
         echo "ERROR: could not identify the ISO produced by this build in ${OUT_DIR} (new: ${#new_isos[@]}, replaced: ${#changed_isos[@]})" >&2
         exit 1
     fi
 
-    local head_now stamp_file stamp
+    local head_now
     head_now="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
-    stamp_file="${ISO_PATH}.commit"
-    if [[ -f "${stamp_file}" ]]; then
-        stamp="$(cat -- "${stamp_file}")"
-        if [[ "${stamp}" != "${head_now}" ]]; then
-            echo "ERROR: ${stamp_file} does not match HEAD ${head_now}" >&2
-            exit 1
-        fi
-    elif [[ "${replaced}" -eq 1 ]]; then
-        echo "ERROR: replaced ISO ${ISO_PATH} has no .commit stamp matching HEAD ${head_now}" >&2
-        exit 1
-    else
-        printf '%s\n' "${head_now}" > "${stamp_file}"
-    fi
+    python3 "${SCRIPT_DIR}/iso-manifest.py" verify "${ISO_PATH}" "${head_now}"
+
 }
 
 if [[ "${REUSE_ISO}" -eq 1 ]]; then
@@ -103,11 +90,7 @@ if [[ "${REUSE_ISO}" -eq 1 ]]; then
     fi
     ISO_PATH="${ISO_CANDIDATES[0]}"
     HEAD_NOW="$(git -C "${REPO_ROOT}" rev-parse HEAD)"
-    STAMP_FILE="${ISO_PATH}.commit"
-    if [[ ! -f "${STAMP_FILE}" || "$(cat "${STAMP_FILE}")" != "${HEAD_NOW}" ]]; then
-        echo "ERROR: ${STAMP_FILE} does not match HEAD ${HEAD_NOW}" >&2
-        exit 1
-    fi
+    python3 "${SCRIPT_DIR}/iso-manifest.py" verify "${ISO_PATH}" "${HEAD_NOW}"
     echo "Reusing ISO ${ISO_PATH} built from ${HEAD_NOW}."
 else
     select_fresh_iso

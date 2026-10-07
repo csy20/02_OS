@@ -41,35 +41,50 @@ fn scope_with(scope: &[String], name: &str) -> Vec<String> {
     next
 }
 
+struct SourceSymbolRef<'a> {
+    name: Option<&'a str>,
+    id: Option<&'a str>,
+}
+
 struct ChildEnv {
     scope: Vec<String>,
     current: Option<String>,
+    current_id: Option<String>,
 }
 
 struct WalkFrame<'a> {
     node: Node<'a>,
     scope: Vec<String>,
     current: Option<String>,
+    current_id: Option<String>,
 }
 
-fn same_env(scope: &[String], current: Option<&str>) -> ChildEnv {
+fn same_env(scope: &[String], current: Option<&str>, current_id: Option<&str>) -> ChildEnv {
     ChildEnv {
         scope: scope.to_vec(),
         current: current.map(str::to_string),
+        current_id: current_id.map(str::to_string),
     }
 }
 
-fn enter_symbol(scope: &[String], name: &str) -> ChildEnv {
+fn enter_symbol(scope: &[String], name: &str, id: String) -> ChildEnv {
     ChildEnv {
         scope: scope_with(scope, name),
         current: Some(name.to_string()),
+        current_id: Some(id),
     }
 }
 
-fn enter_scope(scope: &[String], current: Option<&str>, name: &str) -> ChildEnv {
+fn enter_scope(
+    scope: &[String],
+    current: Option<&str>,
+    current_id: Option<&str>,
+    name: &str,
+) -> ChildEnv {
     ChildEnv {
         scope: scope_with(scope, name),
         current: current.map(str::to_string),
+        current_id: current_id.map(str::to_string),
     }
 }
 
@@ -77,15 +92,21 @@ fn enter_scope(scope: &[String], current: Option<&str>, name: &str) -> ChildEnv 
 fn walk_nodes<'a>(
     root: Node<'a>,
     current: Option<&str>,
-    mut visit: impl FnMut(Node<'a>, &[String], Option<&str>) -> ChildEnv,
+    mut visit: impl FnMut(Node<'a>, &[String], Option<&str>, Option<&str>) -> ChildEnv,
 ) {
     let mut stack = vec![WalkFrame {
         node: root,
         scope: Vec::new(),
         current: current.map(str::to_string),
+        current_id: None,
     }];
     while let Some(frame) = stack.pop() {
-        let child_env = visit(frame.node, &frame.scope, frame.current.as_deref());
+        let child_env = visit(
+            frame.node,
+            &frame.scope,
+            frame.current.as_deref(),
+            frame.current_id.as_deref(),
+        );
         let mut cursor = frame.node.walk();
         let children: Vec<Node<'a>> = frame.node.children(&mut cursor).collect();
         for child in children.into_iter().rev() {
@@ -93,6 +114,7 @@ fn walk_nodes<'a>(
                 node: child,
                 scope: child_env.scope.clone(),
                 current: child_env.current.clone(),
+                current_id: child_env.current_id.clone(),
             });
         }
     }
@@ -224,17 +246,24 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
-        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
-            Self::visit_rust_node(
-                file_path,
-                content,
-                node,
-                scope,
-                current_symbol,
-                symbols,
-                references,
-            )
-        });
+        walk_nodes(
+            node,
+            current_symbol,
+            |node, scope, current_symbol, current_symbol_id| {
+                Self::visit_rust_node(
+                    file_path,
+                    content,
+                    node,
+                    scope,
+                    SourceSymbolRef {
+                        name: current_symbol,
+                        id: current_symbol_id,
+                    },
+                    symbols,
+                    references,
+                )
+            },
+        );
     }
 
     fn visit_rust_node<'a>(
@@ -242,12 +271,14 @@ impl CodeExtractor {
         content: &'a str,
         node: Node<'a>,
         scope: &[String],
-        current_symbol: Option<&str>,
+        current: SourceSymbolRef<'_>,
         symbols: &mut Vec<Symbol>,
         references: &mut Vec<SymbolReference>,
     ) -> ChildEnv {
+        let current_symbol = current.name;
+        let current_symbol_id = current.id;
         let kind = node.kind();
-        let mut child_env = same_env(scope, current_symbol);
+        let mut child_env = same_env(scope, current_symbol, current_symbol_id);
 
         match kind {
             "function_item" => {
@@ -294,13 +325,18 @@ impl CodeExtractor {
                         fingerprint: Self::symbol_fingerprint(full_text),
                     };
                     symbols.push(sym);
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
 
                     if is_test {
                         // Mark test reference
                         references.push(SymbolReference {
                             source_file: file_path.to_string(),
                             source_symbol_name: Some(name.to_string()),
+                            source_symbol_id: child_env.current_id.clone(),
                             target_name: name.to_string(),
                             target_symbol_id: None,
                             kind: ReferenceKind::Tests,
@@ -333,21 +369,25 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
                 }
             }
             "mod_item" => {
                 if let Some(name_node) = node.child_by_field_name("name") {
                     let name = &content[name_node.byte_range()];
                     if !name.is_empty() {
-                        child_env = enter_scope(scope, current_symbol, name);
+                        child_env = enter_scope(scope, current_symbol, current_symbol_id, name);
                     }
                 }
             }
             "impl_item" => {
                 if let Some(type_node) = node.child_by_field_name("type") {
                     if let Some(name) = rust_scope_type_name(content, type_node) {
-                        child_env = enter_scope(scope, current_symbol, name);
+                        child_env = enter_scope(scope, current_symbol, current_symbol_id, name);
                     }
                 }
             }
@@ -359,6 +399,7 @@ impl CodeExtractor {
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
                         source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        source_symbol_id: current_symbol_id.map(str::to_string),
                         target_name: clean_target.to_string(),
                         target_symbol_id: None,
                         kind: ReferenceKind::Calls,
@@ -376,6 +417,7 @@ impl CodeExtractor {
                 references.push(SymbolReference {
                     source_file: file_path.to_string(),
                     source_symbol_name: None,
+                    source_symbol_id: None,
                     target_name: target.to_string(),
                     target_symbol_id: None,
                     kind: ReferenceKind::Imports,
@@ -426,17 +468,24 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
-        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
-            Self::visit_python_node(
-                file_path,
-                content,
-                node,
-                scope,
-                current_symbol,
-                symbols,
-                references,
-            )
-        });
+        walk_nodes(
+            node,
+            current_symbol,
+            |node, scope, current_symbol, current_symbol_id| {
+                Self::visit_python_node(
+                    file_path,
+                    content,
+                    node,
+                    scope,
+                    SourceSymbolRef {
+                        name: current_symbol,
+                        id: current_symbol_id,
+                    },
+                    symbols,
+                    references,
+                )
+            },
+        );
     }
 
     fn visit_python_node<'a>(
@@ -444,12 +493,14 @@ impl CodeExtractor {
         content: &'a str,
         node: Node<'a>,
         scope: &[String],
-        current_symbol: Option<&str>,
+        current: SourceSymbolRef<'_>,
         symbols: &mut Vec<Symbol>,
         references: &mut Vec<SymbolReference>,
     ) -> ChildEnv {
+        let current_symbol = current.name;
+        let current_symbol_id = current.id;
         let kind = node.kind();
-        let mut child_env = same_env(scope, current_symbol);
+        let mut child_env = same_env(scope, current_symbol, current_symbol_id);
 
         match kind {
             "function_definition" => {
@@ -472,12 +523,17 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
 
                     if name.starts_with("test_") {
                         references.push(SymbolReference {
                             source_file: file_path.to_string(),
                             source_symbol_name: Some(name.to_string()),
+                            source_symbol_id: child_env.current_id.clone(),
                             target_name: name.to_string(),
                             target_symbol_id: None,
                             kind: ReferenceKind::Tests,
@@ -505,7 +561,11 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
                 }
             }
             "call" => {
@@ -517,6 +577,7 @@ impl CodeExtractor {
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
                         source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        source_symbol_id: current_symbol_id.map(str::to_string),
                         target_name: clean.to_string(),
                         target_symbol_id: None,
                         kind: ReferenceKind::Calls,
@@ -530,6 +591,7 @@ impl CodeExtractor {
                 references.push(SymbolReference {
                     source_file: file_path.to_string(),
                     source_symbol_name: None,
+                    source_symbol_id: None,
                     target_name: text.trim().to_string(),
                     target_symbol_id: None,
                     kind: ReferenceKind::Imports,
@@ -580,17 +642,24 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
-        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
-            Self::visit_c_node(
-                file_path,
-                content,
-                node,
-                scope,
-                current_symbol,
-                symbols,
-                references,
-            )
-        });
+        walk_nodes(
+            node,
+            current_symbol,
+            |node, scope, current_symbol, current_symbol_id| {
+                Self::visit_c_node(
+                    file_path,
+                    content,
+                    node,
+                    scope,
+                    SourceSymbolRef {
+                        name: current_symbol,
+                        id: current_symbol_id,
+                    },
+                    symbols,
+                    references,
+                )
+            },
+        );
     }
 
     fn visit_c_node<'a>(
@@ -598,12 +667,14 @@ impl CodeExtractor {
         content: &'a str,
         node: Node<'a>,
         scope: &[String],
-        current_symbol: Option<&str>,
+        current: SourceSymbolRef<'_>,
         symbols: &mut Vec<Symbol>,
         references: &mut Vec<SymbolReference>,
     ) -> ChildEnv {
+        let current_symbol = current.name;
+        let current_symbol_id = current.id;
         let kind = node.kind();
-        let mut child_env = same_env(scope, current_symbol);
+        let mut child_env = same_env(scope, current_symbol, current_symbol_id);
 
         match kind {
             "function_definition" => {
@@ -631,7 +702,11 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, func_name);
+                    child_env = enter_symbol(
+                        scope,
+                        func_name,
+                        declaration_id(file_path, scope, func_name, node.start_byte()),
+                    );
                 }
             }
             "struct_specifier" => {
@@ -653,7 +728,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_scope(scope, current_symbol, name);
+                    child_env = enter_scope(scope, current_symbol, current_symbol_id, name);
                 }
             }
             "call_expression" => {
@@ -663,6 +738,7 @@ impl CodeExtractor {
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
                         source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        source_symbol_id: current_symbol_id.map(str::to_string),
                         target_name: target.to_string(),
                         target_symbol_id: None,
                         kind: ReferenceKind::Calls,
@@ -676,6 +752,7 @@ impl CodeExtractor {
                 references.push(SymbolReference {
                     source_file: file_path.to_string(),
                     source_symbol_name: None,
+                    source_symbol_id: None,
                     target_name: text.trim().to_string(),
                     target_symbol_id: None,
                     kind: ReferenceKind::Imports,
@@ -726,17 +803,24 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
-        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
-            Self::visit_bash_node(
-                file_path,
-                content,
-                node,
-                scope,
-                current_symbol,
-                symbols,
-                references,
-            )
-        });
+        walk_nodes(
+            node,
+            current_symbol,
+            |node, scope, current_symbol, current_symbol_id| {
+                Self::visit_bash_node(
+                    file_path,
+                    content,
+                    node,
+                    scope,
+                    SourceSymbolRef {
+                        name: current_symbol,
+                        id: current_symbol_id,
+                    },
+                    symbols,
+                    references,
+                )
+            },
+        );
     }
 
     fn visit_bash_node<'a>(
@@ -744,12 +828,14 @@ impl CodeExtractor {
         content: &'a str,
         node: Node<'a>,
         scope: &[String],
-        current_symbol: Option<&str>,
+        current: SourceSymbolRef<'_>,
         symbols: &mut Vec<Symbol>,
         references: &mut Vec<SymbolReference>,
     ) -> ChildEnv {
+        let current_symbol = current.name;
+        let current_symbol_id = current.id;
         let kind = node.kind();
-        let mut child_env = same_env(scope, current_symbol);
+        let mut child_env = same_env(scope, current_symbol, current_symbol_id);
 
         match kind {
             "function_definition" => {
@@ -771,7 +857,11 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
                 }
             }
             "variable_assignment" => {
@@ -793,7 +883,7 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_scope(scope, current_symbol, name);
+                    child_env = enter_scope(scope, current_symbol, current_symbol_id, name);
                 }
             }
             "command" => {
@@ -804,6 +894,7 @@ impl CodeExtractor {
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
                         source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        source_symbol_id: current_symbol_id.map(str::to_string),
                         target_name: cmd_name.to_string(),
                         target_symbol_id: None,
                         kind: ReferenceKind::Calls,
@@ -855,17 +946,24 @@ impl CodeExtractor {
         references: &mut Vec<SymbolReference>,
         current_symbol: Option<&str>,
     ) {
-        walk_nodes(node, current_symbol, |node, scope, current_symbol| {
-            Self::visit_js_node(
-                file_path,
-                content,
-                node,
-                scope,
-                current_symbol,
-                symbols,
-                references,
-            )
-        });
+        walk_nodes(
+            node,
+            current_symbol,
+            |node, scope, current_symbol, current_symbol_id| {
+                Self::visit_js_node(
+                    file_path,
+                    content,
+                    node,
+                    scope,
+                    SourceSymbolRef {
+                        name: current_symbol,
+                        id: current_symbol_id,
+                    },
+                    symbols,
+                    references,
+                )
+            },
+        );
     }
 
     fn visit_js_node<'a>(
@@ -873,12 +971,14 @@ impl CodeExtractor {
         content: &'a str,
         node: Node<'a>,
         scope: &[String],
-        current_symbol: Option<&str>,
+        current: SourceSymbolRef<'_>,
         symbols: &mut Vec<Symbol>,
         references: &mut Vec<SymbolReference>,
     ) -> ChildEnv {
+        let current_symbol = current.name;
+        let current_symbol_id = current.id;
         let kind = node.kind();
-        let mut child_env = same_env(scope, current_symbol);
+        let mut child_env = same_env(scope, current_symbol, current_symbol_id);
 
         match kind {
             "function_declaration" | "method_definition" => {
@@ -900,7 +1000,11 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
                 }
             }
             "class_declaration" => {
@@ -922,7 +1026,11 @@ impl CodeExtractor {
                         doc_comment: None,
                         fingerprint: Self::symbol_fingerprint(full_text),
                     });
-                    child_env = enter_symbol(scope, name);
+                    child_env = enter_symbol(
+                        scope,
+                        name,
+                        declaration_id(file_path, scope, name, node.start_byte()),
+                    );
                 }
             }
             "call_expression" => {
@@ -936,6 +1044,7 @@ impl CodeExtractor {
                     references.push(SymbolReference {
                         source_file: file_path.to_string(),
                         source_symbol_name: current_symbol.map(|s| s.to_string()),
+                        source_symbol_id: current_symbol_id.map(str::to_string),
                         target_name: clean.to_string(),
                         target_symbol_id: None,
                         kind: if is_test_runner {
@@ -953,6 +1062,7 @@ impl CodeExtractor {
                 references.push(SymbolReference {
                     source_file: file_path.to_string(),
                     source_symbol_name: None,
+                    source_symbol_id: None,
                     target_name: text.trim().to_string(),
                     target_symbol_id: None,
                     kind: ReferenceKind::Imports,
@@ -1031,6 +1141,7 @@ impl CodeExtractor {
                 .filter(|call| {
                     call.source_file == reference.source_file
                         && call.source_symbol_name.as_deref() == Some(source.as_str())
+                        && call.source_symbol_id == reference.source_symbol_id
                 })
                 .collect();
             if let Some(target) = preferred_test_target(&source, &own_calls) {

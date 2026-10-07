@@ -127,6 +127,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -139,9 +140,11 @@ dependencies = [
  "agent-parser",
  "chrono",
  "git2",
+ "hex",
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
 ]

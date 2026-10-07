@@ -242,6 +242,7 @@ class OSProfileTests(unittest.TestCase):
         plugin_path = OVERLAY / "usr/local/share/02os/archinstall_plugin.py"
         namespace = {}
         exec(compile(plugin_path.read_text(), str(plugin_path), "exec"), namespace)
+        namespace["INSTALLED_PACKAGES"] = OVERLAY / "usr/local/share/02os/installed-packages.txt"
         packaged_version = "4.5"
         gate = float(packaged_version.rsplit(".", 1)[0])
         self.assertGreaterEqual(namespace["__archinstall__version__"], gate)
@@ -286,7 +287,8 @@ class OSProfileTests(unittest.TestCase):
                 ["/usr/local/bin/02os-provision", "/mnt/02os-target"],
             ],
         )
-        self.assertEqual(installation.packages, ["plymouth"])
+        desktop_packages = namespace["_read_installed_packages"](namespace["INSTALLED_PACKAGES"])
+        self.assertEqual(installation.packages, ["plymouth"] + desktop_packages)
         self.assertEqual(installation._kernel_params, ["root=UUID=installed-root", "quiet", "splash"])
         self.assertEqual(installation.chroot_calls, ["plymouth-set-default-theme 02-zero-portal"] * 2)
         self.assertEqual(installation.initramfs_calls, [["-P"], ["-P"]])
@@ -353,81 +355,26 @@ class OSProfileTests(unittest.TestCase):
             self.assertEqual(vendor.read_text(), 'NAME="Arch Linux"\nID=arch\n')
             self.assertTrue((untouched / "etc/os-release").is_symlink())
 
-    def test_plugin_renames_arch_boot_titles(self):
+    def test_plugin_retitle_preserves_boot_paths_ids_and_foreign_generator(self):
         plugin_path = OVERLAY / "usr/local/share/02os/archinstall_plugin.py"
         namespace = {}
         exec(compile(plugin_path.read_text(), str(plugin_path), "exec"), namespace)
-        plugin = namespace["Plugin"]()
-        with tempfile.TemporaryDirectory(prefix="02os-boot-title-") as tmp:
-            target = Path(tmp)
-            entry = target / "boot/loader/entries/linux.conf"
-            entry.parent.mkdir(parents=True)
-            entry.write_text(
-                "# Created by: archinstall\n"
-                "title\tArch Linux (linux)\n"
-                "linux\t/vmlinuz-linux\n"
-                "initrd\t/initramfs-linux.img\n"
-                "options root=PARTUUID=abc quiet splash\n"
-            )
-            grub = target / "boot/grub/grub.cfg"
-            grub.parent.mkdir(parents=True)
-            grub.write_text(
-                "menuentry 'Arch Linux' --class arch --class gnu-linux {\n"
-                "    linux /vmlinuz-linux root=UUID=keep quiet\n"
-                "}\n"
-                "submenu 'Advanced options for Arch Linux' {\n"
-                "    menuentry 'Arch Linux, with Linux linux' {\n"
-                "        linux /vmlinuz-linux root=UUID=keep\n"
-                "    }\n"
-                "}\n"
-            )
-            limine = target / "boot/limine/limine.conf"
-            limine.parent.mkdir(parents=True)
-            limine.write_text(
-                "timeout: 5\n"
-                "\n"
-                "/Arch Linux (linux)\n"
-                "    protocol: linux\n"
-                "    path: boot():/vmlinuz-linux\n"
-                "    cmdline: root=PARTUUID=abc quiet splash\n"
-            )
-            refind = target / "boot/refind_linux.conf"
-            refind.write_text(
-                '"Arch Linux (linux)" "root=PARTUUID=abc quiet splash initrd=\\initramfs-linux.img"\n'
-            )
-            efi = target / "efi/loader/entries/linux.conf"
-            efi.parent.mkdir(parents=True)
-            efi.write_text(entry.read_text())
-
-            class Installation:
-                pass
-
-            installation = Installation()
-            installation.target = str(target)
-            plugin._rename_os_titles(installation)
-
-            entry_text = entry.read_text()
-            self.assertIn("title\t02_OS (linux)\n", entry_text)
-            self.assertIn("# Created by: archinstall\n", entry_text)
-            self.assertIn("linux\t/vmlinuz-linux\n", entry_text)
-            self.assertIn("options root=PARTUUID=abc quiet splash\n", entry_text)
-            self.assertNotIn("Arch Linux", entry_text)
-            self.assertEqual(efi.read_text(), entry_text)
-            grub_text = grub.read_text()
-            self.assertIn("menuentry '02_OS' --class arch --class gnu-linux {\n", grub_text)
-            self.assertIn("submenu 'Advanced options for 02_OS' {\n", grub_text)
-            self.assertIn("menuentry '02_OS, with Linux linux' {\n", grub_text)
-            self.assertIn("linux /vmlinuz-linux root=UUID=keep quiet\n", grub_text)
-            self.assertNotIn("Arch Linux", grub_text)
-            limine_text = limine.read_text()
-            self.assertIn("/02_OS (linux)\n", limine_text)
-            self.assertIn("path: boot():/vmlinuz-linux\n", limine_text)
-            self.assertIn("cmdline: root=PARTUUID=abc quiet splash\n", limine_text)
-            self.assertNotIn("Arch Linux", limine_text)
-            self.assertEqual(
-                refind.read_text(),
-                '"02_OS (linux)" "root=PARTUUID=abc quiet splash initrd=\\initramfs-linux.img"\n',
-            )
+        foreign = (
+            "### BEGIN /etc/grub.d/30_os-prober ###\n"
+            "menuentry 'Arch Linux (neighbor)' {\n"
+            " linux /vmlinuz-linux root=UUID=foreign\n}\n"
+            "### END /etc/grub.d/30_os-prober ###\n"
+        )
+        own = (
+            "### BEGIN /etc/grub.d/10_linux ###\n"
+            "menuentry 'Arch Linux' --id 'Arch Linux menu ID' {\n"
+            " linux /vmlinuz-linux root=UUID=current quiet splash\n}\n"
+            "### END /etc/grub.d/10_linux ###\n"
+        )
+        actual = namespace["retitle_grub_text"](own + foreign)
+        self.assertIn("menuentry '02_OS' --id 'Arch Linux menu ID'", actual)
+        self.assertIn("linux /vmlinuz-linux root=UUID=current quiet splash\n", actual)
+        self.assertTrue(actual.endswith(foreign))
 
     def test_agentd_user_unit_is_not_ignored(self):
         unit = OVERLAY / "usr/lib/systemd/user/02-agentd.service"

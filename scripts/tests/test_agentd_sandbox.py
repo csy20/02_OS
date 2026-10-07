@@ -104,13 +104,54 @@ class AgentdSandboxTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             dropin = (out / "02-agentd.service.d" / "10-xdg-storage.conf").read_text()
-            self.assertIn(f"ReadWritePaths={data}/02-agent", dropin)
-            self.assertIn(f"ReadWritePaths={cache}/02-agent", dropin)
-            self.assertIn(f"ReadWritePaths={config}/02-agent", dropin)
+            self.assertIn(f'ReadWritePaths="{data}/02-agent"', dropin)
+            self.assertIn(f'ReadWritePaths="{cache}/02-agent"', dropin)
+            self.assertIn(f'ReadWritePaths="{config}/02-agent"', dropin)
             self.assertIn("ReadWritePaths=%t", dropin)
             self.assertFalse(data.exists())
             self.assertFalse(cache.exists())
             self.assertFalse(config.exists())
+
+    @unittest.skipUnless(Path("/usr/bin/systemd-analyze").is_file(), "systemd parser unavailable")
+    def test_generator_paths_round_trip_through_actual_systemd_parser(self):
+        with self._isolated_env() as (home, env):
+            base = home.parent
+            # All three storage paths are outside HOME and exercise argument
+            # quoting, literal specifiers, quote/backslash escapes and UTF-8.
+            paths = [base / 'data space%N', base / 'cache"quote', base / 'config\\slash雪']
+            for variable, path in zip(("XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"), paths):
+                env[variable] = str(path)
+            out = base / "gen-out"
+            subprocess.run([str(GENERATOR), str(out)], env=env, check=True, timeout=30)
+            dropin = (out / "02-agentd.service.d/10-xdg-storage.conf").read_text()
+            fixture = base / "02-agentd.service"
+            fixture.write_text("[Service]\nExecStart=/bin/true\n" + dropin.removeprefix("[Service]\n"))
+            result = subprocess.run(
+                ["systemd-analyze", "--user", "verify", str(fixture)],
+                env={**env, "SYSTEMD_LOG_LEVEL": "debug", "SYSTEMD_COLORS": "0"},
+                text=True, capture_output=True, timeout=30,
+            )
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, combined)
+            self.assertNotIn("ignoring:", combined)
+            self.assertNotIn("Failed to resolve specifier", combined)
+            effective = next(line for line in combined.splitlines() if "ReadWritePaths:" in line)
+            self.assertTrue(effective.strip().startswith(
+                "ReadWritePaths: " + " ".join(str(path / "02-agent") for path in paths) + " "
+            ), effective)
+            self._run_prepare(env)
+            for path in paths:
+                _assert_private_dir(self, path / "02-agent")
+
+    def test_generator_rejects_line_breaks_without_writing_a_dropin(self):
+        with self._isolated_env() as (home, env):
+            out = home.parent / "gen-out"
+            env["XDG_DATA_HOME"] = str(home.parent / "data\n[Service]")
+            result = subprocess.run([str(GENERATOR), str(out)], env=env, text=True,
+                                    capture_output=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("contains a newline", result.stderr)
+            self.assertFalse(out.exists())
 
     def _isolated_env(self):
         import tempfile

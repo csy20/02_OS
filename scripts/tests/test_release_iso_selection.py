@@ -1,5 +1,6 @@
 """Fresh releases pick the ISO this run wrote; --reuse-iso stays strict."""
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 RELEASE = ROOT / "scripts/release.sh"
+MANIFEST = ROOT / "scripts/iso-manifest.py"
 
 
 def git_head():
@@ -29,7 +31,14 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def write_stub(self, body):
+    def complete(self, iso):
+        subprocess.run(["python3", str(MANIFEST), "create", str(iso), self.head],
+                       check=True, capture_output=True, timeout=10)
+
+    def write_stub(self, body, complete=None):
+        if complete:
+            body += (f'python3 {shlex.quote(str(MANIFEST))} create '
+                     f'"${{OUT_DIR}}/{complete}" {shlex.quote(self.head)}\n')
         stub = self.root / "build.sh"
         stub.write_text("#!/bin/bash\nset -euo pipefail\n" + body)
         stub.chmod(0o755)
@@ -54,7 +63,8 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
         old.write_bytes(b"previous-image")
         (self.out / (old.name + ".commit")).write_text("not-this-commit\n")
         stub = self.write_stub(
-            'printf "new-image\\n" > "${OUT_DIR}/02_OS-2099.10.06-x86_64.iso"\n'
+            'printf "new-image\\n" > "${OUT_DIR}/02_OS-2099.10.06-x86_64.iso"\n',
+            complete="02_OS-2099.10.06-x86_64.iso",
         )
         result = self.run_release(stub)
         combined = result.stdout + result.stderr
@@ -75,7 +85,8 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
         for name in ("02_OS-2099.10.04-x86_64.iso", "02_OS-2099.10.05-x86_64.iso"):
             (self.out / name).write_bytes(b"old")
         stub = self.write_stub(
-            'printf "newest\\n" > "${OUT_DIR}/02_OS-2099.10.06-x86_64.iso"\n'
+            'printf "newest\\n" > "${OUT_DIR}/02_OS-2099.10.06-x86_64.iso"\n',
+            complete="02_OS-2099.10.06-x86_64.iso",
         )
         result = self.run_release(stub)
         combined = result.stdout + result.stderr
@@ -94,7 +105,8 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
         (self.out / (iso.name + ".commit")).write_text("stale-stamp\n")
         stub = self.write_stub(
             'printf "evening-build\\n" > "${OUT_DIR}/02_OS-2099.10.06-x86_64.iso"\n'
-            f'printf "%s\\n" "{self.head}" > "${{OUT_DIR}}/02_OS-2099.10.06-x86_64.iso.commit"\n'
+            f'printf "%s\\n" "{self.head}" > "${{OUT_DIR}}/02_OS-2099.10.06-x86_64.iso.commit"\n',
+            complete="02_OS-2099.10.06-x86_64.iso",
         )
         result = self.run_release(stub)
         combined = result.stdout + result.stderr
@@ -102,6 +114,22 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
         selected = next(line for line in result.stdout.splitlines() if line.startswith("Selected ISO:"))
         self.assertIn("02_OS-2099.10.06-x86_64.iso", selected)
         self.assertEqual(iso.read_bytes(), b"evening-build\n")
+
+    def test_same_second_same_size_rewrite_is_identified(self):
+        iso = self.out / "02_OS-2099.10.06-x86_64.iso"
+        iso.write_bytes(b"old-bytes")
+        os.utime(iso, ns=(1_000_000_000_100_000_000, 1_000_000_000_100_000_000))
+        self.complete(iso)
+        # Keep whole-second mtime, byte count and inode unchanged. Only the
+        # subsecond timestamp and content distinguish this completed build.
+        stub = self.write_stub(
+            'printf "new-bytes" > "${OUT_DIR}/' + iso.name + '"\n'
+            'python3 -c \'import os,sys; os.utime(sys.argv[1], ns=(1000000000200000000, 1000000000200000000))\' '
+            '"${OUT_DIR}/' + iso.name + '"\n', complete=iso.name)
+        result = self.run_release(stub)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Selected ISO:", result.stdout)
+        self.assertEqual(iso.read_bytes(), b"new-bytes")
 
     def test_same_name_rewrite_with_wrong_stamp_is_rejected(self):
         iso = self.out / "02_OS-2099.10.06-x86_64.iso"
@@ -158,6 +186,7 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
         self.assertNotIn("Selected ISO:", bad.stdout)
 
         (self.out / (iso.name + ".commit")).write_text(self.head + "\n")
+        self.complete(iso)
         good = self.run_release(stub, "--reuse-iso")
         combined = good.stdout + good.stderr
         self.assertEqual(good.returncode, 0, combined)
@@ -165,6 +194,45 @@ class ReleaseIsoSelectionTests(unittest.TestCase):
         self.assertIn(iso.name, good.stdout)
         self.assertIn("Reusing ISO", good.stdout)
         self.assertNotIn("build should not run", combined)
+
+    def test_commit_only_iso_requires_a_rebuild(self):
+        iso = self.out / "02_OS-2099.10.06-x86_64.iso"
+        iso.write_bytes(b"legacy-image")
+        Path(str(iso) + ".commit").write_text(self.head + "\n")
+        result = self.run_release(self.write_stub("exit 99\n"), "--reuse-iso")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no completion manifest", result.stderr)
+        self.assertNotIn("Selected ISO:", result.stdout)
+
+    def test_reuse_rejects_changed_bytes_even_when_size_and_revision_match(self):
+        iso = self.out / "02_OS-2099.10.06-x86_64.iso"
+        iso.write_bytes(b"complete-image")
+        self.complete(iso)
+        iso.write_bytes(b"tampered-image")
+        result = self.run_release(self.write_stub("exit 99\n"), "--reuse-iso")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("size/SHA-256", result.stderr)
+        self.assertNotIn("Selected ISO:", result.stdout)
+
+    def test_failed_in_place_rebuild_cannot_be_reused(self):
+        iso = self.out / "02_OS-2099.10.06-x86_64.iso"
+        iso.write_bytes(b"complete-image")
+        self.complete(iso)
+        stub = self.write_stub('printf "partial" > "${OUT_DIR}/' + iso.name + '"\nexit 1\n')
+        failed = self.run_release(stub)
+        self.assertNotEqual(failed.returncode, 0)
+        reused = self.run_release(stub, "--reuse-iso")
+        self.assertNotEqual(reused.returncode, 0)
+        self.assertIn("size/SHA-256", reused.stderr)
+        self.assertNotIn("Selected ISO:", reused.stdout)
+
+    def test_empty_iso_does_not_publish_completion_metadata(self):
+        iso = self.out / "02_OS-2099.10.06-x86_64.iso"
+        iso.touch()
+        result = subprocess.run(["python3", str(MANIFEST), "create", str(iso), self.head],
+                                text=True, capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(Path(str(iso) + ".manifest.json").exists())
 
 
 if __name__ == "__main__":

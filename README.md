@@ -188,7 +188,12 @@ These effects ship in new builds from this source. The previously tested
 ./build.sh
 ```
 
-The ISO is written to `out/`.
+The ISO is written to `out/`. The build host needs Python 3.11 or newer. A
+successful build atomically writes an adjacent `.manifest.json` containing its
+source revision, size and SHA-256, alongside the compatibility `.commit` file.
+`scripts/release.sh` verifies both revision and image bytes before selecting an
+ISO for publication. Legacy images with only a commit stamp must be rebuilt
+before using `--reuse-iso`; existing images and historical evidence are preserved.
 
 ---
 

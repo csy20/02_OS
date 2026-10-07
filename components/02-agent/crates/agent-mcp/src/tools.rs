@@ -4,11 +4,11 @@ use agent_core::{
     config::RepoConfig,
     contain::validate_evidence_file,
     paths::StoragePaths,
-    types::{EvidenceItem, EvidenceMemory, MemoryKind, MemoryStatus, SecretPattern},
+    types::{EvidenceMemory, MemoryKind, MemoryStatus, SecretPattern},
 };
 use agent_git::GitRepo;
 use agent_index::IndexDatabase;
-use agent_memory::MemoryStore;
+use agent_memory::{MemoryStore, MemoryVerifier};
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -229,6 +229,9 @@ pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallRes
         Ok(r) => r,
         Err(e) => return ToolCallResult::error(format!("Git error: {}", e)),
     };
+    // Every consumer must use the discovered worktree root, including overrides
+    // that name a nested directory. Catalog paths are repository-relative.
+    let repo_root = git_repo.root_path();
 
     let repo_info = match git_repo.info() {
         Ok(info) => info,
@@ -389,16 +392,16 @@ pub fn call_tool(repo_root: &Path, name: &str, arguments: &Value) -> ToolCallRes
             }
 
             let commit_id = repo_info.head_commit.unwrap_or_else(|| "none".to_string());
+            let evidence =
+                match MemoryVerifier::capture_evidence(repo_root, file, symbols, &commit_id) {
+                    Ok(evidence) => evidence,
+                    Err(err) => return ToolCallResult::error(format!("evidence rejected: {err}")),
+                };
             let mem = EvidenceMemory {
                 id: id.to_string(),
-                claim: claim.to_string(),
+                claim: SecretPattern::redact(claim),
                 kind: MemoryKind::ArchitecturalFact,
-                evidence: vec![EvidenceItem {
-                    file: file.to_string(),
-                    symbols,
-                    commit: commit_id.clone(),
-                    fingerprint: None,
-                }],
+                evidence: vec![evidence],
                 valid_at: commit_id,
                 confidence: 1.0,
                 status: MemoryStatus::Fresh,

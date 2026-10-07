@@ -369,7 +369,7 @@ impl IndexDatabase {
             .conn
             .prepare(
                 r#"
-                SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number
+                SELECT source_file, source_symbol_name, target_name, target_symbol_id, kind, line_number, source_symbol_id
                 FROM symbol_references WHERE repo_id = ?1 ORDER BY source_file, line_number
                 "#,
             )
@@ -380,6 +380,7 @@ impl IndexDatabase {
                 Ok(SymbolReference {
                     source_file: row.get(0)?,
                     source_symbol_name: row.get(1)?,
+                    source_symbol_id: row.get(6)?,
                     target_name: row.get(2)?,
                     target_symbol_id: row.get(3)?,
                     kind: ReferenceKind::from_str_kind(&kind),

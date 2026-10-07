@@ -319,6 +319,7 @@ fn index_symbols(root: &std::path::Path, repo_id: &RepoId, db: &mut IndexDatabas
 }
 
 fn evidence_memory(
+    root: &std::path::Path,
     id: &str,
     file: &str,
     symbol: &str,
@@ -332,7 +333,16 @@ fn evidence_memory(
             file: file.into(),
             symbols: vec![symbol.into()],
             commit: "abc".into(),
-            fingerprint,
+            fingerprint: fingerprint.or_else(|| {
+                agent_memory::MemoryVerifier::capture_evidence(
+                    root,
+                    file,
+                    vec![symbol.into()],
+                    "abc",
+                )
+                .ok()
+                .and_then(|captured| captured.fingerprint)
+            }),
         }],
         valid_at: "abc".into(),
         confidence: 1.0,
@@ -466,10 +476,22 @@ fn same_symbol_name_in_another_file_stays_fresh() {
 
     let store = MemoryStore::new(root.join("memories.jsonl"));
     store
-        .save(&evidence_memory("mem_a", "src/a.rs", "same_name", None))
+        .save(&evidence_memory(
+            root,
+            "mem_a",
+            "src/a.rs",
+            "same_name",
+            None,
+        ))
         .unwrap();
     store
-        .save(&evidence_memory("mem_b", "src/b.rs", "same_name", None))
+        .save(&evidence_memory(
+            root,
+            "mem_b",
+            "src/b.rs",
+            "same_name",
+            None,
+        ))
         .unwrap();
 
     fs::write(
@@ -522,6 +544,7 @@ fn fingerprint_mismatch_stays_degraded_after_a_clean_reindex() {
     let store = MemoryStore::new(root.join("memories.jsonl"));
     store
         .save(&evidence_memory(
+            root,
             "mem_rotate",
             "src/auth.rs",
             "rotate_refresh_token",
@@ -588,6 +611,7 @@ fn missing_tsx_symbol_stays_stale_after_a_clean_reindex() {
     let store = MemoryStore::new(root.join("memories.jsonl"));
     store
         .save(&evidence_memory(
+            root,
             "mem_removed",
             "src/Widget.tsx",
             "RemovedComponent",
@@ -596,6 +620,7 @@ fn missing_tsx_symbol_stays_stale_after_a_clean_reindex() {
         .unwrap();
     store
         .save(&evidence_memory(
+            root,
             "mem_kept",
             "src/Widget.tsx",
             "KeptComponent",

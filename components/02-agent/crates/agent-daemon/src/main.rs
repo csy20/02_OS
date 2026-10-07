@@ -183,12 +183,24 @@ fn main() -> Result<()> {
                                         "daemon/watch" => {
                                             let path_str =
                                                 req_val["params"]["path"].as_str().unwrap_or("");
-                                            let _ = watcher_conn.add(PathBuf::from(path_str));
+                                            if let Err(err) =
+                                                watcher_conn.add(PathBuf::from(path_str))
+                                            {
+                                                eprintln!(
+                                                    "02-agentd: daemon/watch {path_str}: {err}"
+                                                );
+                                            }
                                         }
                                         "daemon/unwatch" => {
                                             let path_str =
                                                 req_val["params"]["path"].as_str().unwrap_or("");
-                                            let _ = watcher_conn.remove(&PathBuf::from(path_str));
+                                            if let Err(err) =
+                                                watcher_conn.remove(&PathBuf::from(path_str))
+                                            {
+                                                eprintln!(
+                                                    "02-agentd: daemon/unwatch {path_str}: {err}"
+                                                );
+                                            }
                                         }
                                         _ => {}
                                     }
@@ -218,22 +230,16 @@ fn main() -> Result<()> {
                                 "daemon/watch" => {
                                     let path_str = req_val["params"]["path"].as_str().unwrap_or("");
                                     let path = PathBuf::from(path_str);
-                                    let added = watcher_conn.add(path).unwrap_or(false);
-                                    Some(json!({
-                                        "jsonrpc": "2.0",
-                                        "id": id,
-                                        "result": { "added": added }
-                                    }))
+                                    Some(watch_result_response(id, "added", watcher_conn.add(path)))
                                 }
                                 "daemon/unwatch" => {
                                     let path_str = req_val["params"]["path"].as_str().unwrap_or("");
                                     let path = PathBuf::from(path_str);
-                                    let removed = watcher_conn.remove(&path).unwrap_or(false);
-                                    Some(json!({
-                                        "jsonrpc": "2.0",
-                                        "id": id,
-                                        "result": { "removed": removed }
-                                    }))
+                                    Some(watch_result_response(
+                                        id,
+                                        "removed",
+                                        watcher_conn.remove(&path),
+                                    ))
                                 }
                                 "daemon/list_watched" => match watcher_conn.list() {
                                     Ok(list) => Some(json!({
@@ -287,4 +293,23 @@ fn main() -> Result<()> {
 
     DaemonSocket::cleanup(&socket_path);
     Ok(())
+}
+
+fn watch_result_response(
+    id: serde_json::Value,
+    field: &str,
+    result: Result<bool>,
+) -> serde_json::Value {
+    match result {
+        Ok(changed) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": { field: changed }
+        }),
+        Err(err) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32000, "message": err.to_string() }
+        }),
+    }
 }
